@@ -1,16 +1,20 @@
-# Family Emilie, Alexandre, Hugo & Gaspard — édition carnet illustré
+# Family Emilie, Alexandre, Hugo, Gaspard — version carnet illustré
 
-Déploiement GitHub Pages : déposer le contenu de cette archive à la racine du dépôt, en conservant le fichier `config.js` déjà configuré.
+## Installation
+1. Décompresser l'archive et téléverser son contenu dans la racine du dépôt GitHub Pages.
+2. IMPORTANT : conserver votre fichier `config.js` actuel (celui qui fonctionne), ou y remettre les deux valeurs Supabase sous la forme `window.APP_CONFIG={SUPABASE_URL:"…",SUPABASE_PUBLISHABLE_KEY:"…"};`.
+3. Ne jamais publier une clé `service_role` ou `sb_secret_`.
+4. Attendre la fin du déploiement puis recharger le site.
 
-## Configuration Supabase
-Cette édition accepte les deux formats de configuration :
-- `window.APP_CONFIG = { SUPABASE_URL: "…", SUPABASE_PUBLISHABLE_KEY: "…" }`
-- `window.SUPABASE_URL = "…"; window.SUPABASE_ANON_KEY = "…";`
+## Ce que cette version contient
+- Nouvelle interface illustrée inspirée du visuel aquarelle fourni, navigation responsive.
+- Connexion Supabase email/mot de passe (configuration existante conservée par l'utilisateur).
+- Cave : fiches de bouteilles détaillées, catégories Vin/Champagne/Whisky/Rhum, quantités, prix, producteurs, région, millésime, accords, fenêtre de dégustation et plan de rangement Appartement/Extérieur de 7 × 4 places chacun.
+- Cuisine : fiches recettes avec ingrédients, étapes, saison, portions, temps, équipement et lien source ; recherche et filtre.
+- Menus : planning samedi-déjeuner à vendredi-dîner, portions, règles hiver et liste de courses séparée Marché/Supermarché ; génération simple d'ingrédients depuis les recettes associées.
+- Cocktails, agenda local, liens Spotify et notes maison.
 
-**Important :** ne remplacez pas votre `config.js` actuel si la connexion fonctionne déjà. Ne publiez jamais une clé `service_role` ou `sb_secret_`. Utilisez une clé publishable/anon et configurez correctement les politiques RLS dans Supabase.
+## Limites importantes
+Les fiches sont enregistrées dans le stockage local du navigateur : elles ne se synchronisent PAS encore entre appareils et peuvent être perdues si les données du navigateur sont effacées. Supabase sert ici à l'authentification uniquement. Les API de cotations vin/spiritueux, actualisation de prix, import OCR/photo/URL automatisé, synchronisation Google Agenda et synchronisation des données familiales côté serveur ne sont pas encore développés. Ne stockez pas de données patrimoniales sensibles dans cette version.
 
-## Contenu
-Interface familiale responsive : tableau de bord, cave avec plan de rangement (2 lieux × 7 étagères × 4 emplacements), recettes, menus/courses, agenda, playlists et notes maison.
-
-## Limites à connaître
-Cette archive améliore principalement le design et la compatibilité de lecture de la configuration. Les données des modules sont encore enregistrées dans le stockage local du navigateur (elles ne sont donc pas synchronisées entre appareils). La synchronisation Supabase des données, Google Agenda bidirectionnel, import OCR de recettes et actualisation des cotations/prix ne sont pas implémentés dans cette version. L'espace maison/patrimoine est un espace de notes de démonstration : n'y stockez pas d'informations financières ou sensibles.
+L'application charge Supabase JS depuis jsDelivr et les polices depuis Google Fonts ; une connexion internet est nécessaire pour ces ressources. La mise en page reste utilisable sur navigateur mobile.
