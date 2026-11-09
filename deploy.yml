@@ -1,4 +1,4 @@
-name: Deploy Family app
+name: Deploy Family
 on:
   push:
     branches: [main]
@@ -7,9 +7,6 @@ permissions:
   contents: read
   pages: write
   id-token: write
-concurrency:
-  group: github-pages
-  cancel-in-progress: true
 jobs:
   deploy:
     environment:
