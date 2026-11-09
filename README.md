@@ -1,1 +1,16 @@
-# Family — Emilie, Alexandre, Hugo & Gaspard — version 2\n\n## Mise à jour du site déjà en ligne\n1. Décompressez ce ZIP.\n2. Dans votre dépôt GitHub existant, téléversez le contenu du dossier (pas le ZIP) à la racine et remplacez les anciens fichiers.\n3. Très important : dans `config.js`, conservez votre URL Supabase et votre clé publique actuelles. Ne remettez pas les valeurs d'exemple.\n4. Faites Commit changes. GitHub Pages republiera le site.\n5. Si vous utilisez le workflow fourni, choisissez GitHub Actions dans Settings > Pages > Build and deployment.\n\n## Contenu\nInterface responsive au style carnet familial : papier crème, bordeaux, sauge, terracotta, typographie manuscrite et petits motifs. Modules : tableau de bord, cave (2 lieux, 7 étagères x 4 emplacements), recettes, menus/courses, agenda, playlists Spotify, maison/patrimoine. Connexion e-mail/mot de passe via Supabase Auth.\n\n## Limites à connaître impérativement\nCette version est une maquette interactive enrichie. Les éléments ajoutés dans les modules sont enregistrés dans le stockage local du navigateur : ils ne sont PAS encore synchronisés entre iPhone, iPad et PC et ne sont PAS écrits dans Supabase. Le SQL fournit seulement un début de structure et doit être complété/testé, notamment pour les profils, rôles, policies RLS et l'affectation à une famille.\n\nPas encore activés : synchronisation métier Supabase, rôles administrateur/membres, Google Agenda bidirectionnel, import photo/URL des recettes, OCR, mise à jour des prix/cotations, lecteur Spotify intégré. Les liens Spotify peuvent être conservés dans cette maquette. Le module patrimoine est un espace de présentation uniquement.\n\nNe saisissez pas d'informations patrimoniales, financières ou personnelles sensibles dans cette version. Ne publiez jamais une clé Supabase `sb_secret_` ou `service_role` dans le navigateur ou sur GitHub. Une clé Publishable/anon n'est acceptable côté navigateur qu'avec des politiques RLS correctement configurées et testées.\n
+# Family Emilie, Alexandre, Hugo & Gaspard — édition carnet illustré
+
+Déploiement GitHub Pages : déposer le contenu de cette archive à la racine du dépôt, en conservant le fichier `config.js` déjà configuré.
+
+## Configuration Supabase
+Cette édition accepte les deux formats de configuration :
+- `window.APP_CONFIG = { SUPABASE_URL: "…", SUPABASE_PUBLISHABLE_KEY: "…" }`
+- `window.SUPABASE_URL = "…"; window.SUPABASE_ANON_KEY = "…";`
+
+**Important :** ne remplacez pas votre `config.js` actuel si la connexion fonctionne déjà. Ne publiez jamais une clé `service_role` ou `sb_secret_`. Utilisez une clé publishable/anon et configurez correctement les politiques RLS dans Supabase.
+
+## Contenu
+Interface familiale responsive : tableau de bord, cave avec plan de rangement (2 lieux × 7 étagères × 4 emplacements), recettes, menus/courses, agenda, playlists et notes maison.
+
+## Limites à connaître
+Cette archive améliore principalement le design et la compatibilité de lecture de la configuration. Les données des modules sont encore enregistrées dans le stockage local du navigateur (elles ne sont donc pas synchronisées entre appareils). La synchronisation Supabase des données, Google Agenda bidirectionnel, import OCR de recettes et actualisation des cotations/prix ne sont pas implémentés dans cette version. L'espace maison/patrimoine est un espace de notes de démonstration : n'y stockez pas d'informations financières ou sensibles.
