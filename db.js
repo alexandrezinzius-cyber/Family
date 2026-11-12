@@ -18,7 +18,8 @@ export function createClientFromConfig() {
   const cfg = window.APP_CONFIG || {};
   const url = cfg.SUPABASE_URL || window.SUPABASE_URL;
   const key = cfg.SUPABASE_PUBLISHABLE_KEY || cfg.SUPABASE_ANON_KEY || window.SUPABASE_ANON_KEY;
-  if (!window.supabase || !url || !key || /VOTRE/.test(url + key)) return null;
+  if (!window.supabase) { store.configError = 'La bibliothèque Supabase ne s’est pas chargée (vérifiez la connexion).'; return null; }
+  if (!url || !key || /VOTRE/.test(url + key)) { store.configError = 'Configuration Supabase à vérifier dans config.js (URL ou clé manquante).'; return null; }
   store.sb = window.supabase.createClient(url, key, { auth: { persistSession: true, autoRefreshToken: true } });
   return store.sb;
 }

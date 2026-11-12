@@ -73,74 +73,23 @@ async function enter(user) {
 }
 
 async function boot() {
-  try {
-    $('#nav').innerHTML = Object.entries(PAGES).map(([k, p]) => `<button data-page="${k}"><span class="ico">${p.icon}</span><span>${p.label}</span></button>`).join('');
-    $('#nav').onclick = e => { const b = e.target.closest('[data-page]'); if (b) go(b.dataset.page); };
-    $('#dlg').addEventListener('click', e => { if (e.target.id === 'dlg') $('#dlg').close(); });
-    db.onChange(scheduleRender);
+  $('#nav').innerHTML = Object.entries(PAGES).map(([k, p]) => `<button data-page="${k}"><span class="ico">${p.icon}</span><span>${p.label}</span></button>`).join('');
+  $('#nav').onclick = e => { const b = e.target.closest('[data-page]'); if (b) go(b.dataset.page); };
+  $('#dlg').addEventListener('click', e => { if (e.target.id === 'dlg') $('#dlg').close(); }); // clic hors de la fenêtre
+  db.onChange(scheduleRender);
 
-    // Le formulaire est toujours branché avant la vérification de la configuration.
-    const form = $('#loginForm');
-    const submit = form.querySelector('button[type="submit"], button:not([type])');
-    form.addEventListener('submit', async e => {
-      e.preventDefault();
-      const message = $('#loginMessage');
-      const email = $('#email').value.trim();
-      const password = $('#password').value;
-      if (!email || !password) {
-        message.textContent = 'Saisissez votre adresse e-mail et votre mot de passe.';
-        return;
-      }
-      if (!sb) {
-        message.textContent = 'Configuration Supabase indisponible : vérifiez que config.js est chargé et contient APP_CONFIG.';
-        return;
-      }
-      message.textContent = 'Connexion en cours…';
-      if (submit) submit.disabled = true;
-      try {
-        const { data, error } = await sb.auth.signInWithPassword({ email, password });
-        if (error) {
-          console.error('Erreur de connexion Supabase :', error);
-          message.textContent = /invalid login credentials/i.test(error.message || '')
-            ? 'E-mail ou mot de passe incorrect.'
-            : (error.message || 'La connexion a échoué. Réessayez.');
-        } else if (data?.user) {
-          await enter(data.user);
-        } else {
-          message.textContent = 'Supabase n’a pas renvoyé de compte utilisateur.';
-        }
-      } catch (error) {
-        console.error('Erreur inattendue pendant la connexion :', error);
-        message.textContent = `Impossible de se connecter : ${error?.message || 'erreur réseau ou JavaScript'}`;
-      } finally {
-        if (submit) submit.disabled = false;
-      }
-    });
+  const sb = db.createClientFromConfig();
+  if (!sb) return showLogin(db.store.configError || 'Configuration Supabase à vérifier dans config.js');
 
-    const sb = db.createClientFromConfig();
-    if (!sb) {
-      showLogin('Configuration Supabase à vérifier dans config.js (APP_CONFIG.SUPABASE_URL et clé publique).');
-      return;
-    }
+  $('#loginForm').onsubmit = async e => {
+    e.preventDefault(); $('#loginMessage').textContent = 'Connexion…';
+    const { data, error } = await sb.auth.signInWithPassword({ email: $('#email').value.trim(), password: $('#password').value });
+    if (error) $('#loginMessage').textContent = /invalid login/i.test(error.message) ? 'E-mail ou mot de passe incorrect.' : error.message; else enter(data.user);
+  };
+  $('#logoutBtn').onclick = async () => { db.stopRealtime(); await sb.auth.signOut(); db.clearCache(); db.store.user = null; showLogin(); };
 
-    $('#logoutBtn').onclick = async () => {
-      try {
-        db.stopRealtime();
-        await sb.auth.signOut();
-        db.clearCache();
-        db.store.user = null;
-        showLogin();
-      } catch (error) {
-        console.error('Erreur de déconnexion :', error);
-        showLogin(error?.message || 'La déconnexion a échoué.');
-      }
-    };
-
-    const { data: { session } } = await sb.auth.getSession();
-    if (session) await enter(session.user); else showLogin();
-  } catch (error) {
-    console.error('Erreur au démarrage de Family :', error);
-    showLogin(`Erreur au démarrage : ${error?.message || 'consultez la console du navigateur'}`);
-  }
+  $("#loginMessage").textContent = "";
+  const { data: { session } } = await sb.auth.getSession();
+  if (session) enter(session.user); else showLogin();
 }
 boot();
