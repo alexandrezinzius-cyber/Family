@@ -362,7 +362,8 @@ __m.seed = (() => {
 const db = __m.db;
 
 async function importFile(table, file) {
-  const rows = await (await fetch(file)).json();
+  const key = table === 'recipes' ? 'recipes' : 'cellar';
+  const rows = window.SEED && window.SEED[key] ? window.SEED[key] : await (await fetch(file)).json();
   const withFamily = rows.map(r => ({ ...r, family_id: db.store.familyId }));
   let n = 0;
   for (let i = 0; i < withFamily.length; i += 40) {
