@@ -1,5 +1,54 @@
-<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#f7efe2"><title>Family Emilie, Alexandre, Hugo, Gaspard</title><link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Kalam:wght@400;700&family=Playfair+Display:wght@600;700&display=swap" rel="stylesheet"><link rel="stylesheet" href="styles.css"><script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script><script src="config.js"></script><script defer src="app.js"></script></head><body>
-<div id="loginScreen" class="login-screen"><div class="login-card"><div class="tiny">✦ NOTRE CARNET DE FAMILLE ✦</div><div class="login-heart">♡</div><h1>Family</h1><p>Emilie · Alexandre · Hugo · Gaspard</p><form id="loginForm"><label>Adresse e-mail<input id="email" type="email" required autocomplete="username"></label><label>Mot de passe<input id="password" type="password" required autocomplete="current-password"></label><button class="btn wine" type="submit">Entrer dans notre maison <span>→</span></button></form><div id="loginMessage" class="message"></div></div></div>
-<div id="appShell" class="shell hidden"><aside class="sidebar"><div class="brand"><span>♡</span><b>Family</b><small>Emilie · Alexandre · Hugo · Gaspard</small></div><div class="side-note">La maison, les bons petits plats<br>et les belles bouteilles…</div><nav id="nav"><button data-page="home">⌂ <span>Accueil</span></button><button data-page="cellar">♧ <span>Ma cave</span></button><button data-page="recipes">♨ <span>Cuisine & recettes</span></button><button data-page="menus">▦ <span>Menus & courses</span></button><button data-page="agenda">◷ <span>Agenda familial</span></button><button data-page="cocktails">♧ <span>Cocktails</span></button><button data-page="music">♫ <span>Playlists</span></button><button data-page="homebook">⌂ <span>Maison & patrimoine</span></button></nav><div class="side-bottom"><div class="family-icons">E <i>A</i> H <i>G</i></div><small id="signedInAs"></small><button id="logoutBtn" class="logout">Déconnexion ↗</button></div></aside>
-<main class="main"><header class="topbar"><div><div class="eyebrow">LE PETIT UNIVERS DE LA FAMILLE</div><h2 id="heading">Bienvenue à la maison !</h2></div><div class="top-right"><span class="online-dot"></span> Espace famille <span class="heart-mark">♡</span></div></header><section id="content"></section><footer>Fait avec <span>♥</span> pour Emilie, Alexandre, Hugo & Gaspard</footer></main></div>
-<dialog id="dlg"><form id="itemForm" method="dialog"><button type="button" id="closeDlg" class="close">×</button><div class="eyebrow">LE CARNET DE LA FAMILLE</div><h2 id="dlgTitle"></h2><div id="fields" class="form-grid"></div><button class="btn wine" type="submit">Enregistrer <span>♡</span></button></form></dialog><div id="toast" role="status"></div></body></html>
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#e8f2ff">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Family">
+<title>Family — Emilie, Alexandre, Hugo &amp; Gaspard</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<link rel="icon" type="image/png" href="icons/icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Dancing+Script:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script src="config.js"></script>
+<script type="module" src="js/app.js"></script>
+</head>
+<body>
+<div class="bg" aria-hidden="true"><i></i><i></i><i></i></div>
+
+<section id="loginScreen" class="login hidden">
+  <div class="loginbox glass">
+    <p class="script big">Family</p>
+    <p class="names">Emilie · Alexandre · Hugo · Gaspard</p>
+    <form id="loginForm">
+      <label class="field"><span>Adresse e-mail</span><input id="email" type="email" autocomplete="username" required></label>
+      <label class="field"><span>Mot de passe</span><input id="password" type="password" autocomplete="current-password" required></label>
+      <button class="btn primary wide">Entrer</button>
+    </form>
+    <p id="loginMessage" class="muted"></p>
+  </div>
+</section>
+
+<div id="appShell" class="hidden">
+  <aside class="sidebar glass">
+    <div class="logo"><span class="script">Family</span><small>Emilie · Alexandre · Hugo · Gaspard</small></div>
+    <nav id="nav"></nav>
+    <div class="sidefoot"><span id="syncBadge" class="sync">● Hors ligne</span><small id="signedInAs"></small><button id="logoutBtn" class="btn ghost small">Se déconnecter</button></div>
+  </aside>
+  <main>
+    <header><h1 id="heading" class="script"></h1><span id="syncBadge2" class="sync"></span></header>
+    <div id="banner"></div>
+    <section id="content"></section>
+  </main>
+</div>
+
+<dialog id="dlg"><div id="dlgBody"></div></dialog>
+<div id="toast" role="status"></div>
+</body>
+</html>
