@@ -78,7 +78,7 @@ create table if not exists public.cellar_items(
   bottle_size text default '75 cl', quantity int not null default 1,
   purchase_price numeric(12,2), estimated_value numeric(12,2), acquired_on date,
   drinking_window text, serving_temperature text, food_pairing text, notes text,
-  vivino_url text, photo_url text,
+  vivino_url text, photo_url text, price_source text, price_updated_at timestamptz,
   location_kind text not null default 'cave' check (location_kind in ('cave','placard','exterieur')),
   slot int check (slot between 1 and 28),    -- emplacement dans la cave à vin (28 bouteilles)
   place_label text,                          -- placard / lieu extérieur
@@ -132,6 +132,8 @@ alter table public.shopping_items add column if not exists created_at timestampt
 alter table public.family_events  add column if not exists notes text;
 alter table public.family_events  add column if not exists all_day boolean default false;
 alter table public.meal_plans     add column if not exists notes text;
+alter table public.cellar_items   add column if not exists price_source text;
+alter table public.cellar_items   add column if not exists price_updated_at timestamptz;
 -- valeur par défaut du family_id sur les tables déjà existantes
 alter table public.shopping_items alter column family_id set default public.my_family();
 alter table public.family_events  alter column family_id set default public.my_family();
