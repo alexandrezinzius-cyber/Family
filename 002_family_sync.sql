@@ -7,12 +7,28 @@
 -- =====================================================================
 create extension if not exists pgcrypto;
 
--- 0. Nettoyage des anciennes tables de la v1 (jamais utilisées par l'appli)
-do $$ begin
-  if exists (select 1 from information_schema.columns
-             where table_schema='public' and table_name='recipes' and column_name='name') then
-    drop table if exists public.meal_plans cascade;
-    drop table if exists public.recipes cascade;
+-- 0. Remplacement des anciennes tables d'une version précédente (structure différente)
+--    Une table n'est remplacée que si elle est VIDE ; sinon le script s'arrête avec un message clair.
+do $$
+declare r record; n bigint;
+begin
+  for r in select * from (values
+      ('meal_plans','meal_type'), ('recipes','total_minutes'), ('shopping_items','name'),
+      ('family_events','title'), ('playlists','spotify_url'), ('family_notes','body'), ('cellar_items','slot')
+    ) as v(tbl, marker)
+  loop
+    if exists (select 1 from information_schema.tables where table_schema='public' and table_name=r.tbl)
+       and not exists (select 1 from information_schema.columns where table_schema='public' and table_name=r.tbl and column_name=r.marker) then
+      execute format('select count(*) from public.%I', r.tbl) into n;
+      if n = 0 then execute format('drop table public.%I cascade', r.tbl);
+      else raise exception 'La table % contient des donnees avec une ancienne structure : ne rien supprimer, contactez-moi.', r.tbl;
+      end if;
+    end if;
+  end loop;
+  -- tables recettes/menus : on vérifie aussi l'ordre de dépendance
+  if exists (select 1 from information_schema.tables where table_schema='public' and table_name='meal_plans')
+     and not exists (select 1 from information_schema.tables where table_schema='public' and table_name='recipes') then
+    drop table public.meal_plans cascade;
   end if;
   drop table if exists public.cellar_bottles cascade;
 end $$;
@@ -160,3 +176,6 @@ drop policy if exists "photos delete" on storage.objects;
 create policy "photos read"   on storage.objects for select using (bucket_id='photos');
 create policy "photos write"  on storage.objects for insert to authenticated with check (bucket_id='photos');
 create policy "photos delete" on storage.objects for delete to authenticated using (bucket_id='photos');
+
+-- 6. Rafraîchit le cache de l'API (évite l'erreur « column not found in the schema cache »)
+notify pgrst, 'reload schema';

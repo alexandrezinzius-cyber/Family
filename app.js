@@ -97,10 +97,54 @@ async function compressImage(file, max = 1100, quality = 0.82) {
 // ---- ingrédients ----
 const ingredientLines = text => String(text || '').split(/\r?\n/).map(l => l.replace(/^[\s\-•*·–]+/, '').trim()).filter(l => l && !/:$/.test(l));
 
-const MARCHE = /(carotte|poireau|courgette|aubergine|tomate|salade|radis|betterave|betrave|chou|céleri|celeri|oignon|échalote|echalote|ail\b|pomme|poire|citron|orange|fruit|légume|legume|herbe|persil|basilic|coriandre|menthe|champignon|épinard|epinard|haricot|poivron|concombre|navet|potiron|courge|butternut|patate|poulet|volaille|canard|pintade|dinde|lapin|œuf|oeuf)/i;
-const guessShop = line => (MARCHE.test(line) ? 'Marché' : 'Supermarché');
+// Marché : fruits, légumes, herbes fraîches, volaille, œufs. Supermarché : tout le reste.
+const norm = t => String(t || '').toLowerCase().replace(/œ/g, 'oe').normalize('NFD').replace(/[̀-ͯ]/g, '');
+const PROCESSED = /(concentr|coulis|puree|concass|boite|conserve|sauce|pelee|sech|surgel|confit|jus de|huile|sirop|compote|confiture|vinaigre|bouillon|cube|poudre|\blait|creme|fromage|beurre|\bfarine\b|sucre|\bpate|\bvin\b|moutarde|ketchup|cornichon|lardon|jambon|saucisse|chocolat|miel|\bsel\b|poivre|epice|paprika|cumin|curry|muscade|raclette|mozzarella|parmesan|emmental|comte)/;
+const FRESH = /(carotte|poireau|courgette|aubergine|tomate|salade|laitue|radis|betterave|betrave|\bchou|celeri|oignon|echalote|\bail\b|pomme|poire|citron|\boranges?\b|clementine|mandarine|kiwi|banane|fraise|framboise|cerise|abricot|peche|nectarine|melon|raisin|figue|fruit|legume|persil|basilic|coriandre|menthe|ciboulette|thym|romarin|gingembre|cebette|ciboule|champignon|epinard|haricots? verts?|poivron|concombre|navet|potiron|courge|butternut|patate|endive|fenouil|panais|asperge|artichaut|avocat|mache|brocoli|petits? pois|\bmais\b|poulet|volaille|canard|dinde|pintade|caille|magret|aiguillette|\boeuf)/;
+const guessShop = line => { const n = norm(line); return !PROCESSED.test(n) && FRESH.test(n) ? 'Marché' : 'Supermarché'; };
 
 return { $, $$, esc, pick, shuffle, PEOPLE, DAYS, ymd, parseYmd, addDays, weekStartSaturday, fmtLong, fmtShort, fmtTime, toLocalInput, toast, openModal, closeModal, fieldHTML, formDialog, compressImage, ingredientLines, guessShop };
+})();
+// ===== season.js =====
+__m.season = (() => {
+// Fruits et légumes de saison (France métropolitaine) : sert à choisir les recettes proposées
+const strip = s => String(s || '').toLowerCase().replace(/œ/g, 'oe').normalize('NFD').replace(/[̀-ͯ]/g, '');
+
+// [nom affiché, motif (sans accents), mois de saison]
+const PRODUCE = [
+  ['poireau', 'poireau', '9-4'], ['courge', 'courge(?!tte)|potiron|potimarron|butternut|citrouille', '9-2'],
+  ['chou-fleur', 'chou.?fleur', '9-4'], ['brocoli', 'brocoli', '9-3'], ['chou', '\\bchou(?!.?fleur)', '10-3'],
+  ['céleri', 'celeri', '9-3'], ['betterave', 'betterave|betrave', '9-4'], ['navet', 'navet', '10-4'], ['panais', 'panais', '10-3'],
+  ['topinambour', 'topinambour', '10-3'], ['endive', 'endive', '11-3'], ['fenouil', 'fenouil', '10-3'], ['mâche', 'mache', '10-3'],
+  ['épinard', 'epinard', '3-6,9-11'], ['pomme', '\\bpommes?\\b(?!\\s+(de terre|dauphine|noisette))', '9-4'], ['poire', '\\bpoires?\\b', '9-3'],
+  ['orange', '\\boranges?\\b', '11-3'], ['clémentine', 'clementine|mandarine', '11-2'], ['kiwi', 'kiwi', '11-4'], ['pamplemousse', 'pamplemousse', '11-3'],
+  ['châtaigne', 'chataigne|marron', '10-12'], ['coing', 'coing', '10-12'], ['champignon des bois', 'cepe|girolle|chanterelle|morille', '9-11'],
+  ['tomate', 'tomate', '6-9'], ['courgette', 'courgette', '6-10'], ['aubergine', 'aubergine', '7-10'], ['poivron', 'poivron', '7-10'],
+  ['concombre', 'concombre', '6-9'], ['haricot vert', 'haricots? verts?', '6-10'], ['petit pois', 'petits? pois', '5-7'], ['asperge', 'asperge', '4-6'],
+  ['artichaut', 'artichaut', '5-9'], ['maïs', '\\bmais\\b', '7-10'], ['radis', 'radis', '3-10'], ['salade', 'salade|laitue', '4-10'],
+  ['fraise', 'fraise', '4-7'], ['framboise', 'framboise', '6-8'], ['cerise', 'cerise', '5-7'], ['abricot', 'abricot', '6-8'], ['pêche', 'peche|nectarine', '6-9'],
+  ['melon', 'melon', '6-9'], ['pastèque', 'pasteque', '7-9'], ['figue', 'figue', '8-10'], ['raisin', 'raisin', '8-10'],
+].map(([name, re, months]) => ({ name, re: new RegExp(re), months }));
+
+const inSeason = (months, m) => months.split(',').some(r => { const [a, b] = r.split('-').map(Number); return a <= b ? m >= a && m <= b : m >= a || m <= b; });
+// lignes d'ingrédients transformés (conserves, sauces…) : ne comptent pas comme produit frais
+const PROCESSED = /(concentr|coulis|puree|concass|boite|conserve|sauce|pelee|sech|surgel|confit|jus de|huile|sirop|compote|confiture|vinaigre|bouillon|cube)/;
+
+const MONTHS = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
+const seasonalNames = m => PRODUCE.filter(p => inSeason(p.months, m)).map(p => p.name);
+
+// score > 0 : recette de saison ; score < 0 : produits hors saison
+function scoreRecipe(recipe, month) {
+  const text = strip(recipe.ingredients).split('\n').filter(l => !PROCESSED.test(l)).join('\n');
+  let score = 0; const hits = [];
+  for (const p of PRODUCE) {
+    if (!p.re.test(text)) continue;
+    if (inSeason(p.months, month)) { score++; hits.push(p.name); } else score--;
+  }
+  return { score: Math.max(-3, Math.min(4, score)), hits };
+}
+
+return { MONTHS, seasonalNames, scoreRecipe };
 })();
 // ===== db.js =====
 __m.db = (() => {
@@ -638,6 +682,7 @@ function cabinetSVG() {
 }
 
 // ---------------------------------------------------------------- vues
+const totalValue = () => items().reduce((t, b) => t + (Number(b.estimated_value) || 0) * (b.quantity || 1), 0);
 const stat = (n, l) => `<div class="stat glass"><b>${n}</b><span>${l}</span></div>`;
 const qty = b => b.quantity || 1;
 const sum = a => a.reduce((t, b) => t + qty(b), 0);
@@ -646,7 +691,7 @@ function rowHTML(b) {
   const where = b.location_kind === 'cave' ? (b.slot ? slotInfo(b.slot) : 'Cave · à placer') : [KIND_LABEL[b.location_kind], b.place_label].filter(Boolean).join(' · ');
   return `<button class="row bottle" data-id="${b.id}"><span class="dot" style="background:${(GLASS[b.wine_type] || GLASS.Rouge)[0]}"></span>
     <span class="grow"><b>${esc(b.name)}</b> ${b.vintage ? `<span class="muted">${b.vintage}</span>` : ''}<br><small>${esc([b.producer, b.wine_type, b.country].filter(Boolean).join(' · '))}</small></span>
-    <span class="where"><small>${esc(where)}${b.position_note ? ` — <i>${esc(b.position_note)}</i>` : ''}</small></span>${qty(b) > 1 ? `<span class="chip">×${qty(b)}</span>` : ''}</button>`;
+    <span class="where"><small>${esc(where)}${b.position_note ? ` — <i>${esc(b.position_note)}</i>` : ''}</small></span>${b.estimated_value ? `<span class="chip price">${Number(b.estimated_value).toLocaleString('fr-FR')} €</span>` : ''}${qty(b) > 1 ? `<span class="chip">×${qty(b)}</span>` : ''}</button>`;
 }
 
 function caveView() {
@@ -684,7 +729,7 @@ function inventoryView() {
 function html() {
   const all = items();
   const imp = all.length === 0 ? `<div class="card glass accent"><h3 class="script">Premier démarrage</h3><p>Votre export Vivino (36 lignes : 30 bouteilles en cave, le reste en placard) est prêt à être importé.</p><button class="btn primary" id="impCellar">Importer ma cave Vivino</button></div>` : '';
-  return `<div class="stats">${stat(sum(all), 'bouteilles')}${stat(inCave().filter(b => b.slot).length + '/28', 'cave à vin')}${stat(sum(all.filter(b => b.location_kind === 'placard')), 'en placard')}${stat(sum(all.filter(b => b.location_kind === 'exterieur')), 'à l’extérieur')}</div>
+  return `<div class="stats">${stat(sum(all), 'bouteilles')}${stat(inCave().filter(b => b.slot).length + '/28', 'cave à vin')}${stat(sum(all.filter(b => b.location_kind === 'placard')), 'en placard')}${stat(sum(all.filter(b => b.location_kind === 'exterieur')), 'à l’extérieur')}${stat(totalValue() ? totalValue().toLocaleString('fr-FR') + ' €' : '—', 'valeur estimée')}</div>
   ${imp}
   <div class="bar"><div class="seg" id="cseg">${[['cave', 'Cave à vin'], ['placard', 'Placards'], ['exterieur', 'Extérieur'], ['tout', 'Inventaire']].map(([k, l]) => `<button data-v="${k}" class="${view === k ? 'on' : ''}">${l}</button>`).join('')}</div>
    <span class="grow"></span><button class="btn" id="cocktailBtn">🍸 Idée de cocktail</button><button class="btn primary" data-add="${view === 'placard' || view === 'exterieur' ? view : 'cave'}">＋ Bouteille</button></div>
@@ -815,10 +860,11 @@ return { TYPES, html, editBottle, bind };
 // ===== menus.js =====
 __m.menus = (() => {
 // Module Menus & courses : semaine du samedi au vendredi, propositions automatiques, liste de courses
-const { $, $$, esc, toast, openModal, closeModal, formDialog, ymd, parseYmd, addDays, weekStartSaturday, fmtLong, fmtShort, shuffle, pick, DAYS } = __m.util;
+const { $, $$, esc, toast, openModal, closeModal, formDialog, ymd, parseYmd, addDays, weekStartSaturday, fmtLong, fmtShort, shuffle, pick, DAYS, guessShop } = __m.util;
 const db = __m.db;
 const { randomMeal, MEAL_CATS, translateIdea } = __m.ext;
 const { addIngredients } = __m.shopping;
+const { scoreRecipe, seasonalNames, MONTHS } = __m.season;
 const { openRecipe } = __m.recipes;
 const { openIdea, saveIdeaAsRecipe } = __m.ideas;
 
@@ -846,7 +892,7 @@ function shoppingHTML() {
   const list = [...db.store.t.shopping_items].sort((a, b) => (a.shop || '').localeCompare(b.shop || '') || a.name.localeCompare(b.name, 'fr'));
   const shops = [...new Set(list.map(i => i.shop || 'Supermarché'))];
   const checked = list.filter(i => i.checked).length;
-  return `<div class="card glass"><div class="sectionhead"><h3 class="script">Liste de courses</h3>${checked ? `<button class="btn small" id="clearChecked">Retirer les ${checked} cochés</button>` : ''}</div>
+  return `<div class="card glass"><div class="sectionhead"><h3 class="script">Liste de courses</h3><span><button class="btn small" id="reshop">↻ Reclasser marché / supermarché</button> ${checked ? `<button class="btn small" id="clearChecked">Retirer les ${checked} cochés</button>` : ''}</span></div>
     <form id="shopForm" class="inlineform"><input name="name" placeholder="Ajouter un article…" required><select name="shop"><option>Marché</option><option selected>Supermarché</option></select><button class="btn primary">Ajouter</button></form>
     ${shops.map(s => `<h4>${s === 'Marché' ? '🥕' : '🛒'} ${esc(s)}</h4>${list.filter(i => (i.shop || 'Supermarché') === s).map(i => `<div class="shopitem ${i.checked ? 'done' : ''}"><button class="tick" data-check="${i.id}" aria-label="Cocher">${i.checked ? '✓' : ''}</button><span class="grow">${esc(i.name)}${i.recipe_title ? `<small> · ${esc(i.recipe_title)}</small>` : ''}</span><button class="x" data-rm="${i.id}" aria-label="Supprimer">×</button></div>`).join('')}`).join('') || '<div class="empty">La liste est vide.</div>'}</div>`;
 }
@@ -860,6 +906,7 @@ function html() {
     <b class="weeklabel">${fmtShort(weekStart)} → ${fmtShort(addDays(weekStart, 6))}</b><span class="grow"></span>
     <button class="btn" id="weekShop">🛒 Courses de la semaine</button><button class="btn primary" data-propose>✨ Proposer les menus</button></div>
   <div class="week">${days.map(d => `<div class="daycard glass ${ymd(d) === ymd(today) ? 'today' : ''}"><h4>${esc(fmtLong(d))}</h4>${typesOf(d).map(t => mealCell(d, t)).join('')}</div>`).join('')}</div>
+  <p class="muted small">🥕 De saison en ${MONTHS[seasonMonth() - 1]} : ${esc(seasonalNames(seasonMonth()).join(', '))}.</p>
   <p class="muted small">Chaque dîner est prévu pour 3 personnes. Novembre à mars : soupe le dimanche et le lundi soir. Les propositions utilisent d’abord votre carnet, en évitant ce que vous avez cuisiné ces trois dernières semaines.</p>
   ${shoppingHTML()}`;
 }
@@ -899,14 +946,20 @@ function pools() {
     lunches: mine.filter(r => ['Brunch', 'Apéro', 'Entrée'].includes(r.category) || (r.category === 'Plat' && r.total_minutes && r.total_minutes <= 30 && !isSoup(r))),
   };
 }
+const seasonMonth = () => addDays(weekStart, 3).getMonth() + 1;
+// tirage pondéré : les recettes riches en fruits et légumes de saison sont favorisées, celles hors saison pénalisées
 function pickFrom(pool, used, recent) {
   const free = pool.filter(r => !used.has(r.id));
   const fresh = free.filter(r => !recent.has(r.id));
   const base = fresh.length ? fresh : free;
-  const favs = base.filter(r => r.favorite);
-  return base.length ? (favs.length && Math.random() < 0.45 ? pick(favs) : pick(base)) : null;
+  if (!base.length) return null;
+  const m = seasonMonth();
+  const w = base.map(r => Math.max(0.15, 1 + 0.7 * scoreRecipe(r, m).score + (r.favorite ? 0.5 : 0)));
+  let x = Math.random() * w.reduce((a, b) => a + b, 0);
+  for (let i = 0; i < base.length; i++) { x -= w[i]; if (x <= 0) return base[i]; }
+  return base[base.length - 1];
 }
-const fromRecipe = (date, type, r, servings = 3) => ({ date, type, servings, recipe_id: r?.id || null, title: r?.title || '', photo_url: r?.photo_url || null, web: null });
+const fromRecipe = (date, type, r, servings = 3) => ({ date, type, servings, recipe_id: r?.id || null, title: r?.title || '', photo_url: r?.photo_url || null, web: null, seasonal: r ? scoreRecipe(r, seasonMonth()).hits : [] });
 
 async function buildProposal(withWeb) {
   const { recent, soups, dinners, lunches } = pools();
@@ -936,7 +989,7 @@ async function setWeb(e) {
 
 const entryRow = (e, i) => `<div class="prow"><span class="pday">${esc(fmtShort(parseYmd(e.date)))}<small>${TYPE_LABEL[e.type]}</small></span>
   ${e.photo_url ? `<img src="${esc(e.photo_url)}" alt="">` : '<span class="thumb"></span>'}
-  <span class="grow"><b>${esc(e.title || '— rien de trouvé —')}</b>${e.web ? '<small><span class="chip">idée internet</span></small>' : e.recipe_id ? '<small>de votre carnet</small>' : ''}</span>
+  <span class="grow"><b>${esc(e.title || '— rien de trouvé —')}</b>${e.web ? '<small><span class="chip">idée internet</span></small>' : e.recipe_id ? `<small>de votre carnet${e.seasonal?.length ? ` · 🌿 de saison : ${esc(e.seasonal.slice(0, 3).join(', '))}` : ''}</small>` : ''}</span>
   <button class="iconbtn" data-reroll="${i}" aria-label="Autre proposition">↻</button><button class="iconbtn" data-drop="${i}" aria-label="Retirer">×</button></div>`;
 
 async function showProposal() {
@@ -1008,6 +1061,7 @@ function bind(root, rerender) {
     const m = e.target.closest('.meal'); if (m) return editSlot(m.dataset.date, m.dataset.type);
     const c = e.target.closest('[data-check]'); if (c) { const it = db.store.t.shopping_items.find(i => i.id === c.dataset.check); return db.patch('shopping_items', it.id, { checked: !it.checked }); }
     const x = e.target.closest('[data-rm]'); if (x) return db.del('shopping_items', x.dataset.rm);
+    if (e.target.id === 'reshop') { let n = 0; for (const i of db.store.t.shopping_items) { const sh = guessShop(i.name); if (sh !== i.shop) { await db.patch('shopping_items', i.id, { shop: sh }); n++; } } return toast(n ? `${n} article${n > 1 ? 's' : ''} reclassé${n > 1 ? 's' : ''}` : 'Tout est déjà bien classé'); }
     if (e.target.id === 'clearChecked') for (const i of db.store.t.shopping_items.filter(i => i.checked)) await db.del('shopping_items', i.id);
   };
   $('#shopForm', root).onsubmit = async e => {

@@ -6,7 +6,7 @@ Toutes les données sont **synchronisées automatiquement** entre vos appareils 
 ## Mise en place (une seule fois)
 1. **Supabase → SQL Editor** : collez le contenu de `002_family_sync.sql` puis *Run*. Le script peut être relancé sans perdre de données. Il rattache tous vos comptes existants à la famille.
 2. **Supabase → Authentication → Sign In / Providers** : désactivez *Allow new users to sign up* (vos comptes existent déjà, personne d'autre ne doit pouvoir s'inscrire).
-3. **GitHub** (tout est à la racine, aucun dossier) : déposez le contenu de cette archive à la racine du dépôt. **Gardez votre `config.js` actuel** (celui qui contient votre vraie URL et clé publique). `config.example.js` n'est qu'un modèle. Ne mettez jamais de clé `service_role` / `sb_secret_`.
+3. **GitHub** : déposez le contenu de cette archive à la racine du dépôt. **Gardez votre `config.js` actuel** (celui qui contient votre vraie URL et clé publique). `config.example.js` n'est qu'un modèle. Ne mettez jamais de clé `service_role` / `sb_secret_`.
 4. Ouvrez le site, connectez-vous, puis :
    - **Cave** → bouton *Importer ma cave Vivino* (36 lignes : 28 bouteilles dans la cave à vin, 2 « à placer », le reste en placard).
    - **Recettes** → bouton *Importer mes recettes* (81 recettes MyRecipeBox avec photos).
@@ -25,4 +25,4 @@ Toutes les données sont **synchronisées automatiquement** entre vos appareils 
 - L'import du calendrier et de la liste de courses du fichier MyRecipeBox n'est pas fait (anciens repas de 2021–2025).
 
 ## Fichiers (tous à la racine, aucun dossier)
-`index.html`, `app.js`, `style.css`, `seed-data.js` (vos 81 recettes + votre cave), `r-*.jpg` (photos des recettes), `icon-*.png`, `manifest.webmanifest`, `002_family_sync.sql` (à coller dans Supabase), et **votre** `config.js`. Les anciens `styles.css` et les dossiers `js`, `css`, `data`, `assets` éventuels peuvent être supprimés.
+`index.html`, `app.js`, `style.css`, `seed-data.js`, `r-*.jpg`, `icon-*.png`, `manifest.webmanifest`, `002_family_sync.sql`, et **votre** `config.js`.
