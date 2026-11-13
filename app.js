@@ -1790,7 +1790,7 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
     return { html, bind };
   })();
   __m.misc = (() => {
-    const { $, $$, esc, toast, formDialog, ymd, parseYmd, addDays, fmtLong, fmtTime, toLocalInput, PEOPLE } = __m.util;
+    const { $, $$, esc, toast, formDialog, openModal, closeModal, ymd, parseYmd, addDays, fmtLong, fmtTime, toLocalInput, PEOPLE } = __m.util;
     const db = __m.db;
     const t = (k) => db.store.t[k];
     const pIndex = (o) => Math.max(0, PEOPLE.indexOf(o));
@@ -1878,27 +1878,48 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
         }
       });
     }
+    function spotifyInfo(raw) {
+      const t2 = String(raw || "").trim();
+      let m = t2.match(/open\.spotify\.com\/(?:intl-[a-z]+\/)?(?:embed\/)?(playlist|album|track|artist|show|episode)\/([A-Za-z0-9]{10,30})/) || t2.match(/spotify:(playlist|album|track|artist|show|episode):([A-Za-z0-9]{10,30})/);
+      if (m) return { type: m[1], id: m[2], web: `https://open.spotify.com/${m[1]}/${m[2]}`, embed: `https://open.spotify.com/embed/${m[1]}/${m[2]}` };
+      if (/^[A-Za-z0-9]{22}$/.test(t2)) return { type: "playlist", id: t2, web: `https://open.spotify.com/playlist/${t2}`, embed: `https://open.spotify.com/embed/playlist/${t2}` };
+      m = t2.match(/https?:\/\/(?:spotify\.link|spoti\.fi)\/\S+/);
+      return m ? { type: "short", web: m[0] } : null;
+    }
     const music = {
       html() {
-        return `<div class="bar"><span class="muted">Les liens Spotify s\u2019ouvrent directement dans l\u2019appli Spotify ou Safari.</span><span class="grow"></span><button class="btn primary" id="addPl">\uFF0B Playlist</button></div>
-      <div class="plgrid">${t("playlists").map((p) => `<div class="card glass pl"><span class="ico">\u{1F3B5}</span><div class="grow"><b>${esc(p.title)}</b><br><small>${esc(p.owner || "Famille")}</small></div><a class="btn primary small" href="${esc(p.spotify_url)}" target="_blank" rel="noopener">\xC9couter \u2197</a><button class="iconbtn" data-edit="${p.id}" aria-label="Modifier">\u22EF</button></div>`).join("") || '<div class="empty">Ajoutez le lien de vos playlists Spotify.</div>'}</div>`;
+        return `<div class="bar"><span class="muted">\xAB \xC9couter \xBB lance la playlist ici ; \xAB Spotify \xBB l\u2019ouvre dans l\u2019appli. Pour une playlist priv\xE9e, connectez-vous \xE0 Spotify dans ce navigateur.</span><span class="grow"></span><button class="btn primary" id="addPl">\uFF0B Playlist</button></div>
+      <div class="plgrid">${t("playlists").map((p) => {
+          const i = spotifyInfo(p.spotify_url);
+          return `<div class="card glass pl"><span class="ico">\u{1F3B5}</span><div class="grow"><b>${esc(p.title)}</b><br><small>${esc(p.owner || "Famille")}${i ? "" : " \xB7 lien non reconnu"}</small></div>${i && i.embed ? `<button class="btn primary small" data-play="${p.id}">\u25B6 \xC9couter</button>` : ""}<a class="btn small" href="${esc(i ? i.web : p.spotify_url)}">Spotify \u2197</a><button class="iconbtn" data-edit="${p.id}" aria-label="Modifier">\u22EF</button></div>`;
+        }).join("") || '<div class="empty">Ajoutez le lien de vos playlists Spotify.</div>'}</div>`;
       },
       bind(root) {
         const edit = (p = {}) => formDialog({
           title: p.id ? "Modifier la playlist" : "Nouvelle playlist",
           values: __spreadValues({ owner: "Famille" }, p),
-          fields: [{ name: "title", label: "Nom", required: true, full: true }, { name: "spotify_url", label: "Lien Spotify", required: true, full: true, placeholder: "https://open.spotify.com/playlist/\u2026" }, { name: "owner", label: "\xC0 qui", type: "select", options: PEOPLE }],
+          fields: [{ name: "title", label: "Nom", required: true, full: true }, { name: "spotify_url", label: "Lien Spotify", required: true, full: true, placeholder: "https://open.spotify.com/playlist/\u2026", hint: "Dans Spotify : \u22EF \u203A Partager \u203A Copier le lien de la playlist" }, { name: "owner", label: "\xC0 qui", type: "select", options: PEOPLE }],
           danger: p.id ? { label: "Supprimer", confirm: "Supprimer cette playlist ?", run: () => db.del("playlists", p.id) } : null,
           onSubmit: async (v) => {
-            if (!/^https?:\/\//.test(v.spotify_url)) throw new Error("Le lien doit commencer par https://");
+            const i = spotifyInfo(v.spotify_url);
+            if (!i) throw new Error("Lien Spotify non reconnu : collez le lien \xAB Copier le lien de la playlist \xBB.");
+            v.spotify_url = i.web;
             if (p.id) await db.patch("playlists", p.id, v);
             else await db.add("playlists", v);
           }
         });
+        const play = (p) => {
+          const i = spotifyInfo(p.spotify_url);
+          openModal(`<h2 class="script">${esc(p.title)}</h2><iframe class="spframe" src="${esc(i.embed)}" width="100%" height="380" frameborder="0" allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" loading="lazy"></iframe><div class="formactions"><a class="btn" href="${esc(i.web)}">Ouvrir dans Spotify \u2197</a><span class="grow"></span><button class="btn primary" data-close>Fermer</button></div>`, { wide: true, onMount: (r) => {
+            $("[data-close]", r).onclick = closeModal;
+          } });
+        };
         $("#addPl", root).onclick = () => edit();
         root.onclick = (e) => {
           const b = e.target.closest("[data-edit]");
-          if (b) edit(t("playlists").find((x) => x.id === b.dataset.edit));
+          if (b) return edit(t("playlists").find((x) => x.id === b.dataset.edit));
+          const pl = e.target.closest("[data-play]");
+          if (pl) play(t("playlists").find((x) => x.id === pl.dataset.play));
         };
       }
     };
@@ -1926,7 +1947,7 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
         };
       }
     };
-    return { home, agenda, music, homebook };
+    return { home, agenda, spotifyInfo, music, homebook };
   })();
   __m.app = (() => {
     const { $, $$, esc, toast, closeModal } = __m.util;

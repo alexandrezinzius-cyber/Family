@@ -197,3 +197,5 @@ dialog.fallback[open] { position: fixed; top: 50%; left: 50%; -webkit-transform:
 .bottle .thumb { width: 28px; height: 40px; object-fit: contain; border-radius: 6px; background: rgba(255,255,255,.6); flex: none; }
 ul.plain { padding-left: 18px; margin: 6px 0; }
 .chip.rating { background: rgba(255,184,0,.18); color: #a86a00; }
+.spframe { border: 0; border-radius: 14px; background: rgba(0,0,0,.04); max-width: 100%; }
+.pl .btn.small { white-space: nowrap; }
