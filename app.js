@@ -446,6 +446,7 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
   })();
   __m.ext = (() => {
     const { pick } = __m.util;
+    const db = __m.db;
     const MEAL = "https://www.themealdb.com/api/json/v1/1/";
     const COCK = "https://www.thecocktaildb.com/api/json/v1/1/";
     async function getJSON(url) {
@@ -510,7 +511,27 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
         lang: fr ? "fr" : "en"
       };
     }
-    async function randomMeal(cats = MEAL_CATS["Plat"], exclude = []) {
+    const FR_TERM = { Beef: "boeuf", Chicken: "poulet", Lamb: "agneau", Pork: "porc", Pasta: "p\xE2tes", Seafood: "poisson", Vegetarian: "l\xE9gumes", Miscellaneous: "gratin", Starter: "entr\xE9e", Side: "accompagnement", Dessert: "dessert", Breakfast: "brunch" };
+    const FR_TYPE = { Starter: "entree", Side: "accompagnement", Dessert: "dessert", Breakfast: "" };
+    const FR_SPIRIT = { Whiskey: "whisky", Scotch: "whisky", Bourbon: "bourbon", Rum: "rhum", Gin: "gin", Vodka: "vodka", Tequila: "tequila", Cognac: "cognac", Brandy: "cognac", Champagne: "champagne", Prosecco: "prosecco", Port: "porto", Wine: "vin" };
+    async function marmiton(q, type, exclude) {
+      const { data, error } = await db.store.sb.functions.invoke("marmiton", { body: { q, type, exclude } });
+      if (error || !data || data.error || !data.idea) throw new Error(data && data.error || error && error.message || "Marmiton indisponible");
+      return data.idea;
+    }
+    const FALLBACK = "Marmiton n\u2019a pas r\xE9pondu (fonction \xAB marmiton \xBB \xE0 installer ou site indisponible) : id\xE9e issue de TheMealDB.";
+    async function randomMeal(cats = MEAL_CATS["Plat"], exclude = [], opts = {}) {
+      const cat = pick(cats);
+      try {
+        return await marmiton(opts.query || FR_TERM[cat] || "plat", FR_TYPE[cat] === void 0 ? "platprincipal" : FR_TYPE[cat], exclude);
+      } catch (err) {
+        console.warn("Marmiton", err);
+      }
+      const idea = await randomMealDB(cats, exclude);
+      idea.note = FALLBACK;
+      return idea;
+    }
+    async function randomMealDB(cats, exclude) {
       var _a;
       for (let t = 0; t < 4; t++) {
         const list = await getJSON(MEAL + "filter.php?c=" + encodeURIComponent(pick(cats)));
@@ -521,7 +542,18 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
       }
       throw new Error("Aucune id\xE9e trouv\xE9e, r\xE9essayez.");
     }
-    async function randomCocktail({ alcoholic = true, ingredient = null } = {}) {
+    async function randomCocktail(o = {}) {
+      const { alcoholic = true, ingredient = null } = o;
+      try {
+        return await marmiton(ingredient && FR_SPIRIT[ingredient] ? "cocktail " + FR_SPIRIT[ingredient] : alcoholic ? "cocktail alcool" : "cocktail sans alcool", "", o.exclude || []);
+      } catch (err) {
+        console.warn("Marmiton", err);
+      }
+      const idea = await randomCocktailDB(o);
+      idea.note = FALLBACK.replace("TheMealDB", "TheCocktailDB");
+      return idea;
+    }
+    async function randomCocktailDB({ alcoholic = true, ingredient = null } = {}) {
       var _a;
       let ids;
       if (ingredient) {
@@ -649,14 +681,19 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
       return { qty, fam, unit, name, key, skip: isSkipped(name) };
     }
     const fmtNum = (x) => (Math.round(x * 100) / 100).toString().replace(".", ",");
+    const FR = { 0.25: "\xBC", 0.5: "\xBD", 0.75: "\xBE" };
+    const fmtFrac = (x) => {
+      const w = Math.floor(x), f = Math.round((x - w) * 100) / 100;
+      return FR[f] ? w ? `${w}${FR[f]}` : FR[f] : fmtNum(x);
+    };
     function formatQty(qty, fam) {
       if (qty === null || qty === void 0) return "";
       if (fam === "g") return qty >= 1e3 ? `${fmtNum(qty / 1e3)} kg` : `${fmtNum(qty)} g`;
       if (fam === "ml") return qty >= 1e3 ? `${fmtNum(qty / 1e3)} l` : qty >= 10 && qty % 10 === 0 ? `${fmtNum(qty / 10)} cl` : `${fmtNum(qty)} ml`;
-      if (fam === "cas") return `${fmtNum(qty)} c. \xE0 s.`;
-      if (fam === "cac") return `${fmtNum(qty)} c. \xE0 c.`;
-      if (fam === "n") return fmtNum(qty);
-      return `${fmtNum(qty)} ${qty > 1 ? PLURAL[fam] || fam + "s" : fam}`;
+      if (fam === "cas") return `${fmtFrac(qty)} c. \xE0 s.`;
+      if (fam === "cac") return `${fmtFrac(qty)} c. \xE0 c.`;
+      if (fam === "n") return fmtFrac(qty);
+      return `${fmtFrac(qty)} ${qty > 1 ? PLURAL[fam] || fam + "s" : fam}`;
     }
     const itemLabel = (row) => {
       if (!row.quantity) return row.name;
@@ -727,7 +764,32 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
       }
       return { removed, merged, moved };
     }
-    return { isSkipped, parseLine, formatQty, itemLabel, addLines, addIngredients, tidyList };
+    const lowerFirst = (t) => /^[A-ZÀ-ÝŒ][a-zà-ÿœ’' ]/.test(t) ? t[0].toLowerCase() + t.slice(1) : t;
+    const VOWEL = /^(?:[aeiouyàâäéèêëîïôöùûüœ]|huile|herbe|huitre|huître)/i;
+    const tidyName = (t) => lowerFirst(String(t).replace(/\s+/g, " ").replace(/([A-Za-zÀ-ÿ])'(?=[A-Za-zÀ-ÿ])/g, "$1\u2019").replace(/\boeufs?\b/gi, (m) => m.length > 4 ? "\u0153ufs" : "\u0153uf").replace(/\bboeuf/gi, "b\u0153uf").replace(/pommes? de terres?\b/gi, "pomme de terre").replace(/\s*([,;])\s*/g, "$1 ").replace(/[.,;\s]+$/, "").trim());
+    const COUNTABLE = /^(œuf|courgette|carotte|oignon|tomate|pomme de terre|pomme|poire|poivron|aubergine|citron|orange|échalote|champignon|banane|concombre|navet|avocat|endive|kiwi|clémentine|patate|tranche|filet|gousse|cuisse|escalope|saucisse|tortilla|crêpe|poireau|artichaut|betterave|figue|pêche|abricot|fraise|brin|feuille)\b/i;
+    const VEG_KG = /^(pomme de terre|carotte|tomate|courgette|oignon|aubergine|poireau|champignon|patate|navet|betterave|pomme|poire)\b/i;
+    const plural = (name, qty, fam) => {
+      const m = name.match(COUNTABLE);
+      if (!m) return name;
+      const need = fam === "n" && qty > 1 || fam === "g" && qty >= 250 && VEG_KG.test(name);
+      if (!need) return name;
+      const head = m[0], rest = name.slice(head.length);
+      return (/[sxz]$/i.test(head) ? head : head + "s") + rest;
+    };
+    function harmonizeLine(line) {
+      const raw = String(line || "").replace(/\s+/g, " ").replace(/^[\s\-•*·–]+/, "").trim();
+      if (!raw || /:$/.test(raw)) return raw;
+      const p = parseLine(raw);
+      if (!p || /^\d/.test(p.name) || /^\d+(?:[.,]\d+)?\s*(?:a|-|ou)\s*\d/.test(norm(raw))) return /^\d/.test(raw) ? raw.replace(/'/g, "\u2019") : tidyName(raw);
+      const name = p.qty === null ? tidyName(p.name) : plural(tidyName(p.name), p.qty, p.fam);
+      if (p.qty === null) return name;
+      const q = formatQty(p.qty, p.fam);
+      if (p.fam === "n") return `${q} ${name}`;
+      return `${q} ${VOWEL.test(name) ? "d\u2019" : "de "}${name}`;
+    }
+    const harmonizeIngredients = (text) => String(text || "").split(/\r?\n/).map((l) => l.trim() ? harmonizeLine(l) : "").filter((l, i, a) => l || i && a[i - 1]).join("\n").trim();
+    return { isSkipped, parseLine, formatQty, itemLabel, addLines, addIngredients, tidyList, harmonizeLine, harmonizeIngredients };
   })();
   __m.seed = (() => {
     const db = __m.db;
@@ -750,30 +812,33 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
     const { esc, openModal, closeModal, toast } = __m.util;
     const { translateIdea } = __m.ext;
     const db = __m.db;
+    const { harmonizeIngredients } = __m.shopping;
+    const ratingHTML = (idea) => idea.rating ? ` <span class="chip rating">\u2605 ${String(idea.rating).replace(".", ",")}/5${idea.ratingCount ? ` \xB7 ${idea.ratingCount} avis` : ""}</span>` : "";
     const ideaCardHTML = (idea) => {
-      const ing = String(idea.ingredients || "").split("\n").filter(Boolean);
+      const ing = String(harmonizeIngredients(idea.ingredients) || "").split("\n").filter(Boolean);
       const steps = String(idea.instructions || "").split("\n").filter(Boolean);
       return `<div class="idea">
     ${idea.photo_url ? `<img class="ideaphoto" src="${esc(idea.photo_url)}" alt="" loading="lazy">` : ""}
     <div class="ideabody">
-      <span class="chip">${esc(idea.kind === "cocktail" ? idea.category : "Id\xE9e recette")}</span>
+      <span class="chip">${esc(idea.source === "Marmiton" ? "Marmiton" : idea.kind === "cocktail" ? idea.category : "Id\xE9e recette")}</span>${ratingHTML(idea)}
       <h3 class="script">${esc(idea.title)}</h3>
       ${idea.area ? `<p class="muted">${esc(idea.area)}</p>` : ""}
       <h4>Ingr\xE9dients</h4><ul>${ing.map((i) => `<li>${esc(i)}</li>`).join("")}</ul>
       <h4>Pr\xE9paration</h4>${steps.map((s) => `<p>${esc(s)}</p>`).join("")}
       ${idea.lang === "en" ? '<p class="muted small">Texte en anglais (traduction automatique indisponible).</p>' : idea.translated ? '<p class="muted small">Traduit automatiquement.</p>' : ""}
-      ${idea.source_url ? `<p><a href="${esc(idea.source_url)}" target="_blank" rel="noopener">Source \u2197</a></p>` : ""}
+      ${idea.note ? `<p class="muted small">${esc(idea.note)}</p>` : ""}
+      ${idea.source_url ? `<p><a href="${esc(idea.source_url)}" target="_blank" rel="noopener">${idea.source === "Marmiton" ? "Voir sur Marmiton \u2197" : "Source \u2197"}</a></p>` : ""}
     </div></div>`;
     };
     async function saveIdeaAsRecipe(idea, category) {
       return db.add("recipes", {
         title: idea.title,
         category: category || (idea.kind === "cocktail" ? idea.category : "Plat"),
-        ingredients: idea.ingredients,
+        ingredients: harmonizeIngredients(idea.ingredients),
         instructions: idea.instructions,
         photo_url: idea.photo_url,
         source_url: idea.source_url,
-        notes: "Id\xE9e trouv\xE9e sur internet",
+        notes: idea.source === "Marmiton" ? `Marmiton${idea.rating ? " \xB7 note " + String(idea.rating).replace(".", ",") + "/5" : ""}` : "Id\xE9e trouv\xE9e sur internet",
         servings: idea.kind === "cocktail" ? 1 : null
       });
     }
@@ -820,7 +885,7 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
       };
       await load();
     }
-    return { ideaCardHTML, saveIdeaAsRecipe, openIdea };
+    return { ratingHTML, ideaCardHTML, saveIdeaAsRecipe, openIdea };
   })();
   __m.recipes = (() => {
     const { $, $$, esc, toast, openModal, closeModal, formDialog, compressImage, ymd, DAYS } = __m.util;
@@ -828,7 +893,7 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
     const { openIdea } = __m.ideas;
     const { randomMeal, randomCocktail, MEAL_CATS } = __m.ext;
     const { importRecipes } = __m.seed;
-    const { addIngredients } = __m.shopping;
+    const { addIngredients, harmonizeIngredients } = __m.shopping;
     const CATEGORIES = ["Entr\xE9e", "Plat", "Dessert", "Accompagnement", "Ap\xE9ro", "Brunch", "Cocktail avec alcool", "Cocktail sans alcool"];
     let cat = "", query = "", favOnly = false;
     const recipes = () => db.store.t.recipes;
@@ -848,7 +913,7 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
     <input type="search" id="rq" placeholder="Rechercher une recette ou un ingr\xE9dient\u2026" value="${esc(query)}">
     <button class="btn" id="ideaMeal">\u2728 Id\xE9e de ${mealCat.toLowerCase()}</button>
     <button class="btn" id="ideaAlc">\u{1F378} Cocktail</button><button class="btn" id="ideaNoAlc">\u{1F964} Sans alcool</button>
-    <button class="btn primary" id="addRec">\uFF0B Recette</button></div>
+    <button class="btn" id="harmBtn" title="\xC9crire tous les ingr\xE9dients de la m\xEAme fa\xE7on">\u2728 Harmoniser</button><button class="btn primary" id="addRec">\uFF0B Recette</button></div>
   <div class="chips" id="rchips"><button data-c="" class="${!cat && !favOnly ? "on" : ""}">Toutes (${recipes().length})</button><button data-fav class="${favOnly ? "on" : ""}">\u2665 Favorites</button>
     ${CATEGORIES.map((c) => `<button data-c="${esc(c)}" class="${cat === c ? "on" : ""}">${esc(c)}</button>`).join("")}</div>
   <div class="rgrid" id="rgrid">${gridHTML()}</div>`;
@@ -961,6 +1026,17 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
         $("#rgrid", root).innerHTML = gridHTML();
       };
       $("#addRec", root).onclick = () => editRecipe();
+      $("#harmBtn", root).onclick = async () => {
+        let n = 0;
+        for (const r of recipes()) {
+          const h = harmonizeIngredients(r.ingredients);
+          if (h && h !== r.ingredients) {
+            await db.patch("recipes", r.id, { ingredients: h });
+            n++;
+          }
+        }
+        toast(n ? `${n} recette${n > 1 ? "s" : ""} harmonis\xE9e${n > 1 ? "s" : ""}` : "Tous les ingr\xE9dients sont d\xE9j\xE0 harmonis\xE9s");
+      };
       $("#ideaMeal", root).onclick = () => {
         const k = MEAL_CATS[cat] ? cat : "Plat";
         openIdea(() => randomMeal(MEAL_CATS[k]), { title: `Id\xE9e de ${k.toLowerCase()}`, saveCategory: k });
@@ -983,7 +1059,7 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
     return { CATEGORIES, cardHTML, html, openRecipe, editRecipe, bind };
   })();
   __m.cellar = (() => {
-    const { $, $$, esc, toast, openModal, closeModal, formDialog, compressImage, pick } = __m.util;
+    const { $, $$, esc, toast, openModal, closeModal, formDialog, compressImage, pick, norm } = __m.util;
     const db = __m.db;
     const { openIdea } = __m.ideas;
     const { randomMeal, randomCocktail, PAIRING, SPIRIT_MAP } = __m.ext;
@@ -1069,35 +1145,79 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
       return new Blob([a], { type: mime });
     };
     const labelQuery = (b) => [b.producer, b.name, b.vintage].filter(Boolean).join(" ");
+    let fnMissing = false;
+    const words = (t) => norm(t).split(/[^a-z0-9]+/).filter((w) => w.length > 2 && !/^(chateau|domaine|cuvee|vin|les|des|the|and|rouge|blanc|rose)$/.test(w));
+    async function offLabel(b) {
+      const q = [b.producer, b.name].filter(Boolean).join(" ");
+      const r = await fetch("https://world.openfoodfacts.org/cgi/search.pl?search_simple=1&action=process&json=1&page_size=10&fields=product_name,brands,image_front_url,categories_tags&search_terms=" + encodeURIComponent(q));
+      if (!r.ok) throw new Error("Open Food Facts " + r.status);
+      const want = words(q);
+      if (!want.length) return null;
+      let best = null, bestScore = 0;
+      for (const p of (await r.json()).products || []) {
+        if (!p.image_front_url) continue;
+        const have = words((p.product_name || "") + " " + (p.brands || ""));
+        const hit = want.filter((w) => have.includes(w)).length, score = hit / want.length;
+        const wine = (p.categories_tags || []).some((t) => /wine|vin|alcoholic|spirit/.test(t));
+        if (score > bestScore && (score >= 0.6 || wine && score >= 0.5) && hit >= Math.min(2, want.length)) {
+          best = p.image_front_url;
+          bestScore = score;
+        }
+      }
+      return best;
+    }
+    async function vivinoViaRelay(b) {
+      if (!b.vivino_url || !/^https:\/\/(www\.)?vivino\.com\//.test(b.vivino_url)) return null;
+      const r = await fetch("https://api.allorigins.win/raw?url=" + encodeURIComponent(b.vivino_url));
+      if (!r.ok) return null;
+      const h = await r.text();
+      const m = h.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i) || h.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i);
+      return m ? m[1].startsWith("//") ? "https:" + m[1] : m[1] : null;
+    }
+    async function labelFor(b) {
+      let why = "";
+      if (!fnMissing) {
+        try {
+          const { data, error } = await db.store.sb.functions.invoke("wine-labels", { body: { bottles: [{ id: b.id, url: b.vivino_url || void 0, query: labelQuery(b) }] } });
+          if (error) throw error;
+          const r = data.results[0];
+          if (r.ok) return { url: await db.uploadPhoto(b64blob(r.data, r.mime), "bottles", r.mime) };
+          why = r.error;
+        } catch (e) {
+          if (/not found|404|Failed to send|fetch|relay/i.test(e.message || "")) fnMissing = true;
+          why = fnMissing ? "fonction \xAB wine-labels \xBB non install\xE9e" : e.message || "erreur";
+        }
+      }
+      try {
+        const u = await offLabel(b);
+        if (u) return { url: u };
+        why = why || "absente d\u2019Open Food Facts";
+      } catch (e) {
+        why = why || e.message;
+      }
+      try {
+        const u = await vivinoViaRelay(b);
+        if (u) return { url: u };
+      } catch (e) {
+      }
+      return { error: why || "introuvable" };
+    }
     async function fetchLabels(list) {
       let done = 0;
       const fails = [], queue = [...list];
       const worker = async () => {
         while (queue.length) {
-          const batch = queue.splice(0, 2);
-          let res;
+          const b = queue.shift();
           try {
-            const { data, error } = await db.store.sb.functions.invoke("wine-labels", { body: { bottles: batch.map((b) => ({ id: b.id, url: b.vivino_url || void 0, query: labelQuery(b) })) } });
-            if (error) throw error;
-            res = data.results;
-          } catch (e) {
-            batch.forEach((b) => fails.push({ b, error: /not found|404|Failed to send|fetch/i.test(e.message || "") ? "fonction \xAB wine-labels \xBB non install\xE9e" : e.message || "erreur" }));
-            continue;
-          }
-          for (const r of res) {
-            const b = batch.find((x) => x.id === r.id);
-            if (!b) continue;
-            if (!r.ok) {
+            const r = await labelFor(b);
+            if (!r.url) {
               fails.push({ b, error: r.error });
               continue;
             }
-            try {
-              const url = await db.uploadPhoto(b64blob(r.data, r.mime), "bottles", r.mime);
-              for (const same of items().filter((x) => !x.photo_url && labelQuery(x) === labelQuery(b))) await db.patch("cellar_items", same.id, { photo_url: url });
-              done++;
-            } catch (e) {
-              fails.push({ b, error: e.message || "envoi impossible" });
-            }
+            for (const same of items().filter((x) => !x.photo_url && labelQuery(x) === labelQuery(b))) await db.patch("cellar_items", same.id, { photo_url: r.url });
+            done++;
+          } catch (e) {
+            fails.push({ b, error: e.message || "erreur" });
           }
         }
       };
@@ -1397,7 +1517,7 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
     const { addIngredients, addLines, itemLabel, tidyList } = __m.shopping;
     const { scoreRecipe, seasonalNames, MONTHS } = __m.season;
     const { openRecipe } = __m.recipes;
-    const { openIdea, saveIdeaAsRecipe } = __m.ideas;
+    const { openIdea, saveIdeaAsRecipe, ratingHTML } = __m.ideas;
     const today = /* @__PURE__ */ new Date();
     let weekStart = weekStartSaturday(today.getDay() === 5 ? addDays(today, 1) : today);
     const plans = () => db.store.t.meal_plans;
@@ -1515,14 +1635,14 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
       return out;
     }
     async function setWeb(e) {
-      const idea = await translateIdea(await randomMeal(MEAL_CATS["Plat"], prop.filter((x) => x.web).map((x) => x.web.id)));
+      const idea = await translateIdea(await randomMeal(MEAL_CATS["Plat"], prop.filter((x) => x.web).map((x) => x.web.id), { query: pick(seasonalNames((/* @__PURE__ */ new Date()).getMonth() + 1)) }));
       Object.assign(e, { web: idea, recipe_id: null, title: idea.title, photo_url: idea.photo_url });
     }
     const entryRow = (e, i) => {
       var _a;
       return `<div class="prow"><span class="pday">${esc(fmtShort(parseYmd(e.date)))}<small>${TYPE_LABEL[e.type]}</small></span>
   ${e.photo_url ? `<img src="${esc(e.photo_url)}" alt="">` : '<span class="thumb"></span>'}
-  <span class="grow"><b>${esc(e.title || "\u2014 rien de trouv\xE9 \u2014")}</b>${e.web ? '<small><span class="chip">id\xE9e internet</span></small>' : e.recipe_id ? `<small>de votre carnet${((_a = e.seasonal) == null ? void 0 : _a.length) ? ` \xB7 \u{1F33F} de saison : ${esc(e.seasonal.slice(0, 3).join(", "))}` : ""}</small>` : ""}</span>
+  <span class="grow"><b>${esc(e.title || "\u2014 rien de trouv\xE9 \u2014")}</b>${e.web ? `<small><span class="chip">${e.web.source === "Marmiton" ? "Marmiton" : "id\xE9e internet"}</span>${ratingHTML(e.web)}</small>` : e.recipe_id ? `<small>de votre carnet${((_a = e.seasonal) == null ? void 0 : _a.length) ? ` \xB7 \u{1F33F} de saison : ${esc(e.seasonal.slice(0, 3).join(", "))}` : ""}</small>` : ""}</span>
   <button class="iconbtn" data-reroll="${i}" aria-label="Autre proposition">\u21BB</button><button class="iconbtn" data-drop="${i}" aria-label="Retirer">\xD7</button></div>`;
     };
     async function showProposal() {
