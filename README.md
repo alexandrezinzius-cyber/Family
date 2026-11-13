@@ -24,9 +24,5 @@ Toutes les données sont **synchronisées automatiquement** entre vos appareils 
 - Google Agenda et l'actualisation automatique des cotations de vins ne sont pas encore branchés.
 - L'import du calendrier et de la liste de courses du fichier MyRecipeBox n'est pas fait (anciens repas de 2021–2025).
 
-## Prix des bouteilles (gratuit)
-1. Supabase → SQL Editor : collez `003_prices.sql` → Run (une seule fois).
-2. Cave → 💶 Prix des bouteilles : une liste de toutes les bouteilles avec une case de prix. 🔎 ouvre une recherche de prix, 🍇 la page Vivino. Saisissez le prix d'une bouteille, enregistrez : la valeur totale de la cave se recalcule et se synchronise.
-
-## Fichiers (tous à la racine, aucun dossier)
-`index.html`, `app.js`, `style.css`, `seed-data.js`, `r-*.jpg`, `icon-*.png`, `manifest.webmanifest`, `002_family_sync.sql`, `003_prices.sql`, et **votre** `config.js`.
+## Anciens iPad
+Le code est converti pour être lu par Safari d'iOS 12 (iPad mini 2) : fenêtres de repli, syntaxe ES2017, espacements compatibles.
