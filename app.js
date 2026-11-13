@@ -515,20 +515,31 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
     const FR_TYPE = { Starter: "entree", Side: "accompagnement", Dessert: "dessert", Breakfast: "" };
     const FR_SPIRIT = { Whiskey: "whisky", Scotch: "whisky", Bourbon: "bourbon", Rum: "rhum", Gin: "gin", Vodka: "vodka", Tequila: "tequila", Cognac: "cognac", Brandy: "cognac", Champagne: "champagne", Prosecco: "prosecco", Port: "porto", Wine: "vin" };
     async function marmiton(q, type, exclude) {
-      const { data, error } = await db.store.sb.functions.invoke("marmiton", { body: { q, type, exclude } });
-      if (error || !data || data.error || !data.idea) throw new Error(data && data.error || error && error.message || "Marmiton indisponible");
+      const { data, error } = await Promise.race([db.store.sb.functions.invoke("marmiton", { body: { q, type, exclude } }), new Promise((_, rej) => setTimeout(() => rej(new Error("pas de r\xE9ponse en 25 s")), 25e3))]);
+      if (error) {
+        let msg = error.message || "erreur";
+        try {
+          const b = error.context && await error.context.json();
+          if (b && b.error) msg = b.error;
+        } catch (x) {
+        }
+        if (/Failed to send|not found|404/i.test(msg) && !/Marmiton/.test(msg)) msg = "fonction \xAB marmiton \xBB introuvable dans Supabase : " + msg;
+        throw new Error(msg);
+      }
+      if (!data || data.error || !data.idea) throw new Error(data && data.error || "r\xE9ponse vide");
       return data.idea;
     }
-    const FALLBACK = "Marmiton n\u2019a pas r\xE9pondu (fonction \xAB marmiton \xBB \xE0 installer ou site indisponible) : id\xE9e issue de TheMealDB.";
+    const FALLBACK = (err) => `Marmiton indisponible (${String(err && err.message || err || "erreur").slice(0, 140)}) : id\xE9e issue de TheMealDB.`;
     async function randomMeal(cats = MEAL_CATS["Plat"], exclude = [], opts = {}) {
       const cat = pick(cats);
       try {
         return await marmiton(opts.query || FR_TERM[cat] || "plat", FR_TYPE[cat] === void 0 ? "platprincipal" : FR_TYPE[cat], exclude);
       } catch (err) {
         console.warn("Marmiton", err);
+        var why = err;
       }
       const idea = await randomMealDB(cats, exclude);
-      idea.note = FALLBACK;
+      idea.note = FALLBACK(why);
       return idea;
     }
     async function randomMealDB(cats, exclude) {
@@ -548,9 +559,10 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
         return await marmiton(ingredient && FR_SPIRIT[ingredient] ? "cocktail " + FR_SPIRIT[ingredient] : alcoholic ? "cocktail alcool" : "cocktail sans alcool", "", o.exclude || []);
       } catch (err) {
         console.warn("Marmiton", err);
+        var why = err;
       }
       const idea = await randomCocktailDB(o);
-      idea.note = FALLBACK.replace("TheMealDB", "TheCocktailDB");
+      idea.note = FALLBACK(why).replace("TheMealDB", "TheCocktailDB");
       return idea;
     }
     async function randomCocktailDB({ alcoholic = true, ingredient = null } = {}) {
@@ -1146,10 +1158,11 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
     };
     const labelQuery = (b) => [b.producer, b.name, b.vintage].filter(Boolean).join(" ");
     let fnMissing = false;
+    const timeout = (p, ms, label) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error(label + " : pas de r\xE9ponse (" + ms / 1e3 + " s)")), ms))]);
     const words = (t) => norm(t).split(/[^a-z0-9]+/).filter((w) => w.length > 2 && !/^(chateau|domaine|cuvee|vin|les|des|the|and|rouge|blanc|rose)$/.test(w));
     async function offLabel(b) {
       const q = [b.producer, b.name].filter(Boolean).join(" ");
-      const r = await fetch("https://world.openfoodfacts.org/cgi/search.pl?search_simple=1&action=process&json=1&page_size=10&fields=product_name,brands,image_front_url,categories_tags&search_terms=" + encodeURIComponent(q));
+      const r = await timeout(fetch("https://world.openfoodfacts.org/cgi/search.pl?search_simple=1&action=process&json=1&page_size=10&fields=product_name,brands,image_front_url,categories_tags&search_terms=" + encodeURIComponent(q)), 8e3, "Open Food Facts");
       if (!r.ok) throw new Error("Open Food Facts " + r.status);
       const want = words(q);
       if (!want.length) return null;
@@ -1168,7 +1181,7 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
     }
     async function vivinoViaRelay(b) {
       if (!b.vivino_url || !/^https:\/\/(www\.)?vivino\.com\//.test(b.vivino_url)) return null;
-      const r = await fetch("https://api.allorigins.win/raw?url=" + encodeURIComponent(b.vivino_url));
+      const r = await timeout(fetch("https://api.allorigins.win/raw?url=" + encodeURIComponent(b.vivino_url)), 8e3, "relais Vivino");
       if (!r.ok) return null;
       const h = await r.text();
       const m = h.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i) || h.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i);
@@ -1178,7 +1191,7 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
       let why = "";
       if (!fnMissing) {
         try {
-          const { data, error } = await db.store.sb.functions.invoke("wine-labels", { body: { bottles: [{ id: b.id, url: b.vivino_url || void 0, query: labelQuery(b) }] } });
+          const { data, error } = await timeout(db.store.sb.functions.invoke("wine-labels", { body: { bottles: [{ id: b.id, url: b.vivino_url || void 0, query: labelQuery(b) }] } }), 2e4, "fonction wine-labels");
           if (error) throw error;
           const r = data.results[0];
           if (r.ok) return { url: await db.uploadPhoto(b64blob(r.data, r.mime), "bottles", r.mime) };
@@ -1202,7 +1215,7 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
       }
       return { error: why || "introuvable" };
     }
-    async function fetchLabels(list) {
+    async function fetchLabels(list, onProgress) {
       let done = 0;
       const fails = [], queue = [...list];
       const worker = async () => {
@@ -1212,6 +1225,7 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
             const r = await labelFor(b);
             if (!r.url) {
               fails.push({ b, error: r.error });
+              onProgress && onProgress(done, fails.length);
               continue;
             }
             for (const same of items().filter((x) => !x.photo_url && labelQuery(x) === labelQuery(b))) await db.patch("cellar_items", same.id, { photo_url: r.url });
@@ -1219,6 +1233,7 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
           } catch (e) {
             fails.push({ b, error: e.message || "erreur" });
           }
+          onProgress && onProgress(done, fails.length);
         }
       };
       await Promise.all([worker(), worker()]);
@@ -1227,13 +1242,16 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
     async function labelsSheet() {
       const seen = /* @__PURE__ */ new Set(), todo = items().filter((b) => !b.photo_url && !seen.has(labelQuery(b)) && seen.add(labelQuery(b)));
       if (!todo.length) return toast("Toutes les bouteilles ont d\xE9j\xE0 une \xE9tiquette");
-      toast(`Recherche de ${todo.length} \xE9tiquette${todo.length > 1 ? "s" : ""}\u2026`);
-      const { done, fails } = await fetchLabels(todo);
+      const paint = (d, f) => {
+        const el = $("#lblProg");
+        if (el) el.textContent = `${d + f} / ${todo.length} trait\xE9es \xB7 ${d} \xE9tiquette${d > 1 ? "s" : ""} trouv\xE9e${d > 1 ? "s" : ""} \xB7 ${f} introuvable${f > 1 ? "s" : ""}`;
+      };
+      openModal(`<div class="ideabox"><h2 class="script">Recherche des \xE9tiquettes</h2><div class="loading"><span class="spinner"></span> <span id="lblProg">0 / ${todo.length} trait\xE9es</span></div><p class="muted small">Cela peut prendre une minute ; vous pouvez fermer cette fen\xEAtre, la recherche continue.</p></div>`);
+      const { done, fails } = await fetchLabels(todo, paint);
       const why = {};
       fails.forEach((f) => why[f.error] = (why[f.error] || 0) + 1);
-      toast(`${done} \xE9tiquette${done > 1 ? "s" : ""} r\xE9cup\xE9r\xE9e${done > 1 ? "s" : ""}${fails.length ? ` \xB7 ${fails.length} introuvable${fails.length > 1 ? "s" : ""}` : ""}`, fails.length && !done ? "err" : "");
-      if (fails.length) openModal(`<h2 class="script">\xC9tiquettes non trouv\xE9es</h2><p class="muted">Vous pouvez les ajouter \xE0 la main (fiche de la bouteille \u203A Photo) ou coller le lien Vivino dans la fiche puis relancer.</p>
-    ${Object.entries(why).map(([k, n]) => `<p><b>${n}</b> \xD7 ${esc(k)}</p>`).join("")}<ul class="plain">${fails.slice(0, 40).map((f) => `<li>${esc(f.b.name)} ${f.b.vintage || ""}</li>`).join("")}</ul><div class="formactions"><span class="grow"></span><button class="btn primary" data-close>OK</button></div>`, { onMount: (r) => {
+      openModal(`<h2 class="script">${done} \xE9tiquette${done > 1 ? "s" : ""} r\xE9cup\xE9r\xE9e${done > 1 ? "s" : ""}</h2>${fails.length ? `<p class="muted">${fails.length} bouteille${fails.length > 1 ? "s" : ""} sans \xE9tiquette. Raisons :</p>
+    ${Object.entries(why).map(([k, n]) => `<p><b>${n}</b> \xD7 ${esc(k)}</p>`).join("")}<p class="muted small">Vous pouvez ajouter la photo \xE0 la main (fiche de la bouteille \u203A Photo).</p><ul class="plain">${fails.slice(0, 40).map((f) => `<li>${esc(f.b.name)} ${f.b.vintage || ""}</li>`).join("")}</ul>` : ""}<div class="formactions"><span class="grow"></span><button class="btn primary" data-close>OK</button></div>`, { onMount: (r) => {
         $("[data-close]", r).onclick = closeModal;
       } });
     }

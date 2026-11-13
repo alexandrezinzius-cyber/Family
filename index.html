@@ -14,7 +14,7 @@
 <link rel="icon" type="image/png" href="icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Dancing+Script:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=7">
+<link rel="stylesheet" href="style.css?v=8">
 <script>
 if (!window.crypto) window.crypto = window.msCrypto;
 if (window.crypto && !crypto.randomUUID) crypto.randomUUID = function () { return ([1e7] + -1e3 + -4e3 + -8e3 + -1e11).replace(/[018]/g, function (c) { return (c ^ (crypto.getRandomValues(new Uint8Array(1))[0] & (15 >> (c / 4)))).toString(16); }); };
@@ -25,8 +25,8 @@ if (!Object.fromEntries) Object.fromEntries = function (it) { var o = {}; for (v
 <script>
 window.addEventListener('error', function (e) { var m = document.getElementById('loginMessage'); if (m) m.textContent = 'Erreur de chargement : ' + (e.message || (e.target && e.target.src) || 'fichier introuvable'); }, true);
 </script>
-<script src="seed-data.js?v=7"></script>
-<script defer src="app.js?v=7"></script>
+<script src="seed-data.js?v=8"></script>
+<script defer src="app.js?v=8"></script>
 </head>
 <body>
 <div class="bg" aria-hidden="true"><i></i><i></i><i></i></div>

@@ -14,9 +14,16 @@ const BASE = 'https://www.marmiton.org';
 const shuffle = <T,>(a: T[]) => { a = [...a]; for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
 
 const page = async (url: string) => {
-  const r = await fetch(url, { headers: { 'User-Agent': UA, Accept: 'text/html,application/xhtml+xml', 'Accept-Language': 'fr-FR,fr;q=0.9' }, redirect: 'follow' });
-  if (!r.ok) throw new Error('Marmiton a répondu ' + r.status);
-  return r.text();
+  let status = 0;
+  try {
+    const r = await fetch(url, { headers: { 'User-Agent': UA, Accept: 'text/html,application/xhtml+xml', 'Accept-Language': 'fr-FR,fr;q=0.9' }, redirect: 'follow' });
+    status = r.status;
+    if (r.ok) { const t = await r.text(); if (t.length > 2000) return t; }
+  } catch (_) { /* repli ci-dessous */ }
+  // repli : lecteur de pages public (autre adresse IP), renvoie le HTML d'origine
+  const j = await fetch('https://r.jina.ai/' + url, { headers: { 'X-Return-Format': 'html', Accept: 'text/html' } });
+  if (!j.ok) throw new Error(`Marmiton a refusé l'accès (direct ${status || 'erreur'}, relais ${j.status})`);
+  return j.text();
 };
 const dec = (s: string) => String(s ?? '').replace(/&#(\d+);/g, (_, n) => String.fromCharCode(+n)).replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCharCode(parseInt(h, 16)))
   .replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&nbsp;/g, ' ').replace(/\s+\n/g, '\n').trim();
