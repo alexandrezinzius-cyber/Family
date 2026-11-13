@@ -4,7 +4,7 @@ Site familial (GitHub Pages + Supabase) : cave, recettes, menus & courses, agend
 Toutes les données sont **synchronisées automatiquement** entre vos appareils (Supabase temps réel).
 
 ## Mise en place (une seule fois)
-1. **Supabase → SQL Editor** : collez le contenu de `002_family_sync.sql` puis *Run*. Le script peut être relancé sans perdre de données. Il rattache tous vos comptes existants à la famille.
+1. **Supabase → SQL Editor** : collez le contenu de `supabase/002_family_sync.sql` puis *Run*. Le script peut être relancé sans perdre de données. Il rattache tous vos comptes existants à la famille.
 2. **Supabase → Authentication → Sign In / Providers** : désactivez *Allow new users to sign up* (vos comptes existent déjà, personne d'autre ne doit pouvoir s'inscrire).
 3. **GitHub** : déposez le contenu de cette archive à la racine du dépôt. **Gardez votre `config.js` actuel** (celui qui contient votre vraie URL et clé publique). `config.example.js` n'est qu'un modèle. Ne mettez jamais de clé `service_role` / `sb_secret_`.
 4. Ouvrez le site, connectez-vous, puis :
@@ -23,6 +23,3 @@ Toutes les données sont **synchronisées automatiquement** entre vos appareils 
 - Les idées internet viennent de TheMealDB/TheCocktailDB (catalogue surtout anglo-saxon). La traduction utilise un service gratuit non officiel : si elle est indisponible, le texte reste en anglais.
 - Google Agenda et l'actualisation automatique des cotations de vins ne sont pas encore branchés.
 - L'import du calendrier et de la liste de courses du fichier MyRecipeBox n'est pas fait (anciens repas de 2021–2025).
-
-## Anciens iPad
-Le code est converti pour être lu par Safari d'iOS 12 (iPad mini 2) : fenêtres de repli, syntaxe ES2017, espacements compatibles.

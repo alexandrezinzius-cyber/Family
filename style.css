@@ -193,3 +193,6 @@ dialog.fallback[open] { position: fixed; top: 50%; left: 50%; -webkit-transform:
 .no-flexgap .bar > *, .no-flexgap .chips > *, .no-flexgap .seg > *, .no-flexgap .row > *, .no-flexgap .formactions > *, .no-flexgap .mrow > *, .no-flexgap .prow > *, .no-flexgap .prow2 > *, .no-flexgap .shopitem > *, .no-flexgap .inlineform > *, .no-flexgap .toolbar > *, .no-flexgap .detailhead > *, .no-flexgap .legend > *, .no-flexgap .pl > *, .no-flexgap .rhead > *, .no-flexgap .sectionhead > * { margin-right: 8px; margin-bottom: 6px; }
 .no-flexgap #nav button > * { margin-right: 10px; }
 .no-flexgap .field.check > * { margin-right: 8px; }
+
+.bottle .thumb { width: 28px; height: 40px; object-fit: contain; border-radius: 6px; background: rgba(255,255,255,.6); flex: none; }
+ul.plain { padding-left: 18px; margin: 6px 0; }
