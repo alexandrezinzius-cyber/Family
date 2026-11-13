@@ -181,3 +181,6 @@ dialog::backdrop { background: rgba(10, 40, 90, .35); -webkit-backdrop-filter: b
 
 .prow .grow small { display: block; }
 .mrow span small { display: block; }
+
+.prow2 { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--line); } .prow2 input { width: 96px; text-align: right; } .prow2 a { text-decoration: none; }
+.chip.price { background: rgba(31, 164, 99, .16); color: #15834c; }

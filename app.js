@@ -732,7 +732,7 @@ function html() {
   return `<div class="stats">${stat(sum(all), 'bouteilles')}${stat(inCave().filter(b => b.slot).length + '/28', 'cave à vin')}${stat(sum(all.filter(b => b.location_kind === 'placard')), 'en placard')}${stat(sum(all.filter(b => b.location_kind === 'exterieur')), 'à l’extérieur')}${stat(totalValue() ? totalValue().toLocaleString('fr-FR') + ' €' : '—', 'valeur estimée')}</div>
   ${imp}
   <div class="bar"><div class="seg" id="cseg">${[['cave', 'Cave à vin'], ['placard', 'Placards'], ['exterieur', 'Extérieur'], ['tout', 'Inventaire']].map(([k, l]) => `<button data-v="${k}" class="${view === k ? 'on' : ''}">${l}</button>`).join('')}</div>
-   <span class="grow"></span><button class="btn" id="priceBtn">💶 Mettre à jour les prix</button><button class="btn" id="cocktailBtn">🍸 Idée de cocktail</button><button class="btn primary" data-add="${view === 'placard' || view === 'exterieur' ? view : 'cave'}">＋ Bouteille</button></div>
+   <span class="grow"></span><button class="btn" id="priceBtn">💶 Prix des bouteilles</button><button class="btn" id="cocktailBtn">🍸 Idée de cocktail</button><button class="btn primary" data-add="${view === 'placard' || view === 'exterieur' ? view : 'cave'}">＋ Bouteille</button></div>
   <div id="cview">${view === 'cave' ? caveView() : view === 'tout' ? inventoryView() : groupedList(view)}</div>`;
 }
 
@@ -796,8 +796,8 @@ function detail(b) {
     <div class="detailhead">${b.photo_url ? `<img src="${esc(b.photo_url)}" alt="">` : `<div class="bigdot" style="background:${(GLASS[b.wine_type] || GLASS.Rouge)[0]}"></div>`}
       <div><span class="chip">${esc(b.wine_type)} · ${esc(b.category || '')}</span><h2 class="script">${esc(b.name)}</h2><p class="muted">${esc([b.producer, b.vintage].filter(Boolean).join(' · '))}</p></div></div>
     ${row('Emplacement', where)}${row('Position précise', b.position_note)}${row('Quantité', qty(b) > 1 ? qty(b) : '')}${row('Pays / région', [b.country, b.region].filter(Boolean).join(' · '))}${row('Format', b.bottle_size)}
-    ${row('Prix d’achat', b.purchase_price ? b.purchase_price + ' €' : '')}${row('Valeur estimée (par bouteille)', b.estimated_value ? `${b.estimated_value} €${b.price_updated_at ? ` · ${b.price_source === 'vivino' ? 'Vivino' : 'saisi'} le ${new Date(b.price_updated_at).toLocaleDateString('fr-FR')}` : ''}` : '')}${row('Date d’achat', b.acquired_on)}
-    ${row('À boire', b.drinking_window)}${row('Service', b.serving_temperature)}${row('Accords', b.food_pairing)}${row('Notes', b.notes)}
+    ${row('Prix d’achat', b.purchase_price ? b.purchase_price + ' €' : '')}${row('Source du prix', b.price_note)}${row('Valeur estimée (par bouteille)', b.estimated_value ? `${b.estimated_value} €${b.price_updated_at ? ` · ${b.price_source === 'web' ? 'estimation web' : 'saisi'} le ${new Date(b.price_updated_at).toLocaleDateString('fr-FR')}` : ''}` : '')}${row('Date d’achat', b.acquired_on)}
+    ${row('À boire', b.drinking_window)}${row('Service', b.serving_temperature)}${row('Accords', b.food_pairing)}${row('Notes', b.notes)}${row('Source du prix', b.price_note)}
     ${b.vivino_url ? `<p><a href="${esc(b.vivino_url)}" target="_blank" rel="noopener">Voir sur Vivino ↗</a></p>` : ''}
     <div class="formactions wrap"><button class="btn" data-act="meal">🍽 Idée de plat</button><button class="btn" data-act="cocktail">🍸 Idée de cocktail</button><span class="grow"></span>
       <button class="btn" data-act="drunk">Bue / sortie</button><button class="btn" data-act="edit">Modifier</button><button class="btn ghost" data-close>Fermer</button></div></div>`, {
@@ -838,38 +838,39 @@ function pickSlot(n) {
 }
 
 
-// ---------------------------------------------------------------- prix (via la fonction Supabase "wine-prices")
-function askPrices() {
-  const todo = items().filter(b => b.vivino_url);
-  formDialog({
-    title: 'Mettre à jour les prix', submitLabel: 'Lancer',
-    fields: [{ name: 'overwrite', label: 'Remplacer aussi les prix saisis à la main', type: 'checkbox', full: true }],
-    extra: `<p class="muted">Lit le prix moyen sur la page Vivino de ${todo.length} bouteilles (${new Set(todo.map(b => b.vivino_url)).size} pages différentes). Comptez une à deux minutes. Le prix est enregistré par bouteille.</p>`,
-    onSubmit: async v => { setTimeout(() => runPrices(todo, v.overwrite), 50); },
-  });
-}
+// ---------------------------------------------------------------- prix (saisie rapide, gratuit)
+const priceKey = b => [b.producer, b.name, b.vintage, b.bottle_size].join('|');
+const searchUrl = b => 'https://www.google.com/search?tbm=shop&q=' + encodeURIComponent(['vin', b.producer, b.name, b.vintage].filter(Boolean).join(' '));
 
-async function runPrices(list, overwrite) {
-  const targets = list.filter(b => overwrite || b.price_source !== 'manual');
-  const urls = [...new Set(targets.map(b => b.vivino_url))];
-  const byUrl = {};
-  const box = html => openModal(`<div class="detail"><h2 class="script">Mise à jour des prix</h2>${html}</div>`);
-  box('<div class="loading"><span class="spinner"></span> <span id="pgTxt">Démarrage…</span></div>');
-  const fail = msg => { box(`<p>${esc(msg)}</p><div class="formactions"><span class="grow"></span><button class="btn primary" data-close>Fermer</button></div>`); $('#dlgBody [data-close]').onclick = closeModal; };
-  for (let i = 0; i < urls.length; i += 5) {
-    const { data, error } = await db.store.sb.functions.invoke('wine-prices', { body: { urls: urls.slice(i, i + 5) } });
-    if (error) return fail(error.context?.status === 404 ? 'La fonction « wine-prices » n’est pas encore déployée dans Supabase (voir le README, étape « Prix des bouteilles »).' : `Erreur : ${error.message}`);
-    (data.results || []).forEach(r => (byUrl[r.url] = r));
-    const el = $('#pgTxt'); if (el) el.textContent = `${Math.min(i + 5, urls.length)} / ${urls.length} pages lues…`;
-  }
-  let ok = 0; const missing = [];
-  for (const b of targets) {
-    const r = byUrl[b.vivino_url];
-    if (r?.ok && r.currency === 'EUR') { await db.patch('cellar_items', b.id, { estimated_value: r.price, price_source: 'vivino', price_updated_at: new Date().toISOString() }); ok++; }
-    else missing.push(`${bottleTitle(b)}${r && r.ok ? ` (devise ${r.currency})` : ''}`);
-  }
-  box(`<p><b>${ok}</b> prix mis à jour sur ${targets.length}.</p>${missing.length ? `<p class="muted">Introuvables (à saisir à la main si besoin) :</p><ul>${[...new Set(missing)].map(m => `<li>${esc(m)}</li>`).join('')}</ul>` : ''}<div class="formactions"><span class="grow"></span><button class="btn primary" data-close>Fermer</button></div>`);
-  $('#dlgBody [data-close]').onclick = closeModal;
+function priceSheet() {
+  const groups = new Map();
+  items().forEach(b => { const k = priceKey(b); if (!groups.has(k)) groups.set(k, { b, ids: [] }); groups.get(k).ids.push(b.id); });
+  const rows = [...groups.values()].sort((x, y) => (x.b.producer || x.b.name).localeCompare(y.b.producer || y.b.name, 'fr'));
+  openModal(`<div class="detail"><h2 class="script">Prix des bouteilles</h2>
+    <p class="muted">Prix moyen d’<b>une</b> bouteille, en euros. Le bouton 🔎 ouvre une recherche de prix (Google Shopping) et 🍇 la page Vivino : notez ce que vous trouvez, puis enregistrez. La valeur totale de la cave se recalcule aussitôt.</p>
+    <label class="field check"><input type="checkbox" id="onlyMissing"> <span>Afficher seulement les bouteilles sans prix</span></label>
+    <div class="pricelist">${rows.map(({ b }) => `<div class="prow2" data-has="${b.estimated_value ? 1 : 0}"><span class="grow"><b>${esc(b.name)}</b> ${b.vintage ? `<span class="muted">${b.vintage}</span>` : ''}<br><small>${esc([b.producer, b.price_updated_at && 'prix du ' + new Date(b.price_updated_at).toLocaleDateString('fr-FR')].filter(Boolean).join(' · '))}</small></span>
+      <a class="iconbtn" href="${esc(searchUrl(b))}" target="_blank" rel="noopener" title="Chercher le prix">🔎</a>${b.vivino_url ? `<a class="iconbtn" href="${esc(b.vivino_url)}" target="_blank" rel="noopener" title="Page Vivino">🍇</a>` : ''}
+      <input type="number" min="0" step="0.5" inputmode="decimal" data-k="${esc(priceKey(b))}" value="${b.estimated_value ?? ''}" placeholder="—" aria-label="Prix"><span>€</span></div>`).join('')}</div>
+    <div class="formactions"><button class="btn ghost" data-close>Annuler</button><span class="grow"></span><button class="btn primary" id="savePrices">Enregistrer les prix</button></div></div>`, {
+    wide: true,
+    onMount: root => {
+      $('[data-close]', root).onclick = closeModal;
+      $('#onlyMissing', root).onchange = e => $$('.prow2', root).forEach(r => r.classList.toggle('hidden', e.target.checked && r.dataset.has === '1'));
+      $('#savePrices', root).onclick = async e => {
+        e.target.disabled = true; let n = 0;
+        try {
+          for (const inp of $$('input[data-k]', root)) {
+            const g = groups.get(inp.dataset.k), val = inp.value === '' ? null : Number(inp.value);
+            if (Number(g.b.estimated_value || 0) === Number(val || 0)) continue;
+            for (const id of g.ids) await db.patch('cellar_items', id, { estimated_value: val, price_source: val ? 'manual' : null, price_updated_at: new Date().toISOString() });
+            n++;
+          }
+          closeModal(); toast(n ? `${n} prix enregistré${n > 1 ? 's' : ''} — synchronisé` : 'Aucun changement');
+        } catch (err) { toast(err.message, 'err'); e.target.disabled = false; }
+      };
+    },
+  });
 }
 
 // ---------------------------------------------------------------- événements
@@ -882,7 +883,7 @@ function bind(root, rerender) {
     const add = e.target.closest('[data-add]'); if (add) return editBottle({}, { location_kind: add.dataset.add });
   };
   root.onkeydown = e => { if ((e.key === 'Enter' || e.key === ' ') && e.target.dataset?.slot) { e.preventDefault(); e.target.dispatchEvent(new MouseEvent('click', { bubbles: true })); } };
-  $('#priceBtn', root).onclick = askPrices;
+  $('#priceBtn', root).onclick = priceSheet;
   $('#cocktailBtn', root).onclick = () => {
     const spirits = items().map(spiritOf).filter(Boolean);
     openIdea(() => randomCocktail({ ingredient: spirits.length ? pick(spirits) : null }), { title: 'Un cocktail pour ce soir' });

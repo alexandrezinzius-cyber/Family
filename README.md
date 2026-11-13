@@ -24,11 +24,9 @@ Toutes les données sont **synchronisées automatiquement** entre vos appareils 
 - Google Agenda et l'actualisation automatique des cotations de vins ne sont pas encore branchés.
 - L'import du calendrier et de la liste de courses du fichier MyRecipeBox n'est pas fait (anciens repas de 2021–2025).
 
-## Prix des bouteilles (bouton « Mettre à jour les prix » dans la Cave)
-1. Supabase → SQL Editor : collez `003_prices.sql` → Run.
-2. Supabase → Edge Functions → *Deploy a new function* (éditeur dans le navigateur) : nom **wine-prices**, collez tout `wine-prices-function.ts`, Deploy.
-3. Dans l'appli : Cave → 💶 Mettre à jour les prix. Le prix lu sur la page Vivino de chaque bouteille est enregistré par bouteille ; la valeur totale s'affiche en haut. Les prix saisis à la main ne sont pas écrasés (case à cocher pour le faire).
-Limite : lecture de pages publiques Vivino, susceptible de changer ou d'être bloquée ; seuls les prix en euros sont retenus.
+## Prix des bouteilles (gratuit)
+1. Supabase → SQL Editor : collez `003_prices.sql` → Run (une seule fois).
+2. Cave → 💶 Prix des bouteilles : une liste de toutes les bouteilles avec une case de prix. 🔎 ouvre une recherche de prix, 🍇 la page Vivino. Saisissez le prix d'une bouteille, enregistrez : la valeur totale de la cave se recalcule et se synchronise.
 
 ## Fichiers (tous à la racine, aucun dossier)
-`index.html`, `app.js`, `style.css`, `seed-data.js`, `r-*.jpg`, `icon-*.png`, `manifest.webmanifest`, `002_family_sync.sql`, `003_prices.sql`, `wine-prices-function.ts`, et **votre** `config.js`.
+`index.html`, `app.js`, `style.css`, `seed-data.js`, `r-*.jpg`, `icon-*.png`, `manifest.webmanifest`, `002_family_sync.sql`, `003_prices.sql`, et **votre** `config.js`.
