@@ -514,20 +514,114 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
     const FR_TERM = { Beef: "boeuf", Chicken: "poulet", Lamb: "agneau", Pork: "porc", Pasta: "p\xE2tes", Seafood: "poisson", Vegetarian: "l\xE9gumes", Miscellaneous: "gratin", Starter: "entr\xE9e", Side: "accompagnement", Dessert: "dessert", Breakfast: "brunch" };
     const FR_TYPE = { Starter: "entree", Side: "accompagnement", Dessert: "dessert", Breakfast: "" };
     const FR_SPIRIT = { Whiskey: "whisky", Scotch: "whisky", Bourbon: "bourbon", Rum: "rhum", Gin: "gin", Vodka: "vodka", Tequila: "tequila", Cognac: "cognac", Brandy: "cognac", Champagne: "champagne", Prosecco: "prosecco", Port: "porto", Wine: "vin" };
-    async function marmiton(q, type, exclude) {
-      const { data, error } = await Promise.race([db.store.sb.functions.invoke("marmiton", { body: { q, type, exclude } }), new Promise((_, rej) => setTimeout(() => rej(new Error("pas de r\xE9ponse en 25 s")), 25e3))]);
-      if (error) {
-        let msg = error.message || "erreur";
+    const PROXIES = [(u) => "https://api.allorigins.win/raw?url=" + encodeURIComponent(u), (u) => "https://corsproxy.io/?" + encodeURIComponent(u)];
+    const withTimeout = (p, ms, label) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error(label + " : pas de r\xE9ponse en " + ms / 1e3 + " s")), ms))]);
+    async function viaProxy(url) {
+      let last = "relais indisponible";
+      for (const mk of PROXIES) {
         try {
-          const b = error.context && await error.context.json();
-          if (b && b.error) msg = b.error;
-        } catch (x) {
+          const r = await withTimeout(fetch(mk(url)), 12e3, "relais");
+          if (r.ok) {
+            const t = await r.text();
+            if (t.length > 2e3) return t;
+            last = "page vide";
+          } else last = "relais " + r.status;
+        } catch (err) {
+          last = err.message || "relais indisponible";
         }
-        if (/Failed to send|not found|404/i.test(msg) && !/Marmiton/.test(msg)) msg = "fonction \xAB marmiton \xBB introuvable dans Supabase : " + msg;
-        throw new Error(msg);
       }
-      if (!data || data.error || !data.idea) throw new Error(data && data.error || "r\xE9ponse vide");
-      return data.idea;
+      throw new Error("Marmiton inaccessible (" + last + ")");
+    }
+    const htmlDec = (s) => {
+      const t = document.createElement("textarea");
+      t.innerHTML = String(s == null ? "" : s);
+      return t.value.trim();
+    };
+    function ldRecipe(html) {
+      const re = /<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
+      let m;
+      const nodes = [];
+      const walk = (x) => {
+        if (Array.isArray(x)) x.forEach(walk);
+        else if (x && typeof x === "object") {
+          nodes.push(x);
+          if (x["@graph"]) walk(x["@graph"]);
+        }
+      };
+      while (m = re.exec(html)) {
+        try {
+          walk(JSON.parse(m[1]));
+        } catch (err) {
+        }
+      }
+      return nodes.find((n) => [].concat(n["@type"] || []).indexOf("Recipe") >= 0);
+    }
+    const ldImg = (i) => !i ? null : typeof i === "string" ? i : Array.isArray(i) ? ldImg(i[0]) : i.url || null;
+    const ldSteps = (x) => Array.isArray(x) ? x.reduce((a, y) => a.concat(ldSteps(y)), []) : typeof x === "string" ? [htmlDec(x)] : x && x.itemListElement ? ldSteps(x.itemListElement) : x && x.text ? [htmlDec(x.text)] : [];
+    async function marmitonDirect(q, type, exclude) {
+      const base = "https://www.marmiton.org";
+      const search = async (withType) => {
+        const html = await viaProxy(`${base}/recettes/recherche.aspx?aqt=${encodeURIComponent(q)}${withType && type ? "&type=" + type : ""}`);
+        const out = [], re = /href=["'](\/recettes\/recette_[a-z0-9\-]+_\d+\.aspx)["']/gi;
+        let m;
+        while (m = re.exec(html)) {
+          const u = base + m[1];
+          if (out.indexOf(u) < 0 && (exclude || []).indexOf(u) < 0) out.push(u);
+        }
+        return out;
+      };
+      let links = await search(true);
+      if (!links.length) links = await search(false);
+      if (!links.length) throw new Error("aucune recette trouv\xE9e sur Marmiton");
+      const cands = shuffleArr(links.slice(0, 14)).slice(0, 3);
+      const got = [];
+      await Promise.all(cands.map(async (url) => {
+        try {
+          const r = ldRecipe(await viaProxy(url));
+          if (!r) return;
+          const ar = r.aggregateRating || {}, rating = Number(ar.ratingValue);
+          got.push({ kind: "recipe", title: htmlDec(r.name), category: "Marmiton", area: htmlDec([].concat(r.recipeCategory || []).join(" \xB7 ")), ingredients: (r.recipeIngredient || []).map(htmlDec).join("\n"), instructions: ldSteps(r.recipeInstructions).filter(Boolean).join("\n"), photo_url: ldImg(r.image), source_url: url, id: url, lang: "fr", source: "Marmiton", rating: rating > 0 ? Math.round(rating * 10) / 10 : null, ratingCount: Number(ar.ratingCount || ar.reviewCount || 0) || null });
+        } catch (err) {
+        }
+      }));
+      const ok = got.filter((g) => g.ingredients);
+      if (!ok.length) throw new Error("fiches Marmiton illisibles");
+      ok.sort((a, b) => (b.rating || 0) - (a.rating || 0));
+      return ok.filter((g) => (g.rating || 0) >= 4)[0] || ok[0];
+    }
+    const shuffleArr = (a) => {
+      a = a.slice();
+      for (let i = a.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        const t = a[i];
+        a[i] = a[j];
+        a[j] = t;
+      }
+      return a;
+    };
+    async function marmiton(q, type, exclude) {
+      let fnErr = "";
+      try {
+        const { data, error } = await Promise.race([db.store.sb.functions.invoke("marmiton", { body: { q, type, exclude } }), new Promise((_, rej) => setTimeout(() => rej(new Error("pas de r\xE9ponse en 25 s")), 25e3))]);
+        if (error) {
+          let msg = error.message || "erreur";
+          try {
+            const b = error.context && await error.context.json();
+            if (b && b.error) msg = b.error;
+          } catch (x) {
+          }
+          throw new Error(msg);
+        }
+        if (data && data.idea) return data.idea;
+        throw new Error(data && data.error || "r\xE9ponse vide");
+      } catch (err) {
+        fnErr = err.message || "erreur";
+      }
+      try {
+        return await marmitonDirect(q, type, exclude);
+      } catch (err) {
+        throw new Error(`fonction : ${fnErr} \xB7 acc\xE8s direct : ${err.message}`);
+      }
     }
     const FALLBACK = (err) => `Marmiton indisponible (${String(err && err.message || err || "erreur").slice(0, 140)}) : id\xE9e issue de TheMealDB.`;
     async function randomMeal(cats = MEAL_CATS["Plat"], exclude = [], opts = {}) {
@@ -611,9 +705,8 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
     }
     return { MEAL_CATS, PAIRING, SPIRIT_MAP, randomMeal, randomCocktail, translateIdea };
   })();
-  __m.shopping = (() => {
-    const db = __m.db;
-    const { ingredientLines, guessShop, norm } = __m.util;
+  __m.ingredients = (() => {
+    const { norm } = __m.util;
     const UNITS = [
       [/^kg\b\.?/, "g", 1e3],
       [/^(?:g|gr|grammes?)\b\.?/, "g", 1],
@@ -622,41 +715,61 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
       [/^dl\b\.?/, "ml", 100],
       [/^cl\b\.?/, "ml", 10],
       [/^ml\b\.?/, "ml", 1],
-      [/^(?:c\.?\s*a\.?\s*s\b\.?|cs\b|cuilleres?\s+a\s+soupe|tbsp)/, "cas", 1],
-      [/^(?:c\.?\s*a\.?\s*c\b\.?|cc\b|cuilleres?\s+a\s+cafe|tsp)/, "cac", 1],
-      [/^pincees?\b/, "pinc\xE9e", 1],
-      [/^bouquets?\b/, "bouquet", 1],
+      [/^(?:c\.a\.?(?=\s)|c\.?\s*a\.?\s*soupe|c\.?\s*a\.?\s*s\b\.?|c\.?s\b\.?|cs\b|cuil(?:l?eres?)?\.?\s*a\.?\s*soupe|cuil(?:l?eres?)?\.?\s*a\.?\s*s\b\.?|tbsp)/, "cas", 1],
+      [/^(?:c\.?\s*a\.?\s*cafe|c\.?\s*a\.?\s*c\b\.?|c\.?c\b\.?|cc\b|cuil(?:l?eres?)?\.?\s*a\.?\s*cafe|cuil(?:l?eres?)?\.?\s*a\.?\s*c\b\.?|tsp)/, "cac", 1],
+      [/^pinc(?:ees?\b|\.)/, "pinc\xE9e", 1],
+      [/^bou(?:quets?\b|\.)/, "bouquet", 1],
       [/^bottes?\b/, "botte", 1],
       [/^boites?\b/, "bo\xEEte", 1],
       [/^gousses?\b/, "gousse", 1],
-      [/^tranches?\b/, "tranche", 1],
+      [/^tran(?:ches?\b|\.)/, "tranche", 1],
       [/^filets?\b/, "filet", 1],
-      [/^sachets?\b/, "sachet", 1],
+      [/^(?:sachets?|sac\.)/, "sachet", 1],
       [/^pots?\b/, "pot", 1],
       [/^paquets?\b/, "paquet", 1],
+      [/^bocal(?:aux)?\b/, "bocal", 1],
       [/^brins?\b/, "brin", 1],
       [/^branches?\b/, "branche", 1],
       [/^feuilles?\b/, "feuille", 1],
       [/^verres?\b/, "verre", 1],
       [/^tasses?\b/, "tasse", 1],
-      [/^poignees?\b/, "poign\xE9e", 1],
+      [/^poign(?:ees?|e)\b/, "poign\xE9e", 1],
       [/^morceaux?\b/, "morceau", 1],
       [/^cubes?\b/, "cube", 1],
       [/^rouleaux?\b/, "rouleau", 1],
       [/^tiges?\b/, "tige", 1],
-      [/^batons?\b/, "b\xE2ton", 1]
+      [/^batons?\b/, "b\xE2ton", 1],
+      [/^(?:pieces?|portions?|p\.)(?=\s|$)/, "n", 1]
     ];
     const WORDS = { un: 1, une: 1, deux: 2, trois: 3, quatre: 4, cinq: 5, six: 6 };
     const FRACS = { "\xBD": 0.5, "\xBC": 0.25, "\xBE": 0.75, "\u2153": 1 / 3 };
-    const PLURAL = { morceau: "morceaux", rouleau: "rouleaux" };
-    const SKIP = /^(?:(?:gros |fin |fleur de |du moulin )?(?:sel|poivre)\b.*|eau(?: du robinet| froide| chaude| tiede| bouillante)?)$/;
-    const NOISE = /\b(?:fraiche?s?|frais|rapee?s?|emince?e?s?|hache?e?s?|pele?e?s?|coupe?e?s?|en des|en lamelles|bien|mur(?:e|es|s)?)\b/g;
-    const isSkipped = (name) => SKIP.test(norm(name).replace(/\(.*?\)/g, "").trim());
-    function parseLine(line) {
-      const raw = String(line || "").replace(/^[\s\-•*·–]+/, "").trim();
-      if (!raw) return null;
-      const n = norm(raw);
-      let qty = null, pos = 0, m;
+    const SKIP = /^(?:(?:gros |fin |fleur de |du moulin )?(?:sel|poivre)\b.*|eau\b.*|blender|pic(?:s)? a brochette|bol|robot.*|ustensile.*)$/;
+    const TYPOS = [[/\bcarrotes?\b/gi, "carotte"], [/\bspagh?ett?hi\b/gi, "spaghetti"], [/\bsaussices?\b/gi, "saucisse"], [/\bboulghour\b/gi, "boulgour"], [/\bcebette\b/gi, "c\xE9bette"], [/\bchampignons? de pari\b/gi, "champignons de Paris"], [/\bpoigne\b/gi, "poign\xE9e"]];
+    const PREP = /^(?:a|au|aux|de|du|des|d['’]|en|pour|selon|avec|sans|ou)\b/i;
+    const PARTICIPLE = /(?:e|ee|es|ees)\s*$/i;
+    const isSkippedName = (name) => SKIP.test(norm(name).replace(/\(.*?\)/g, "").trim());
+    function splitLine(s) {
+      if (/^[\d½¼¾⅓]/.test(s) || !/[,+]|\s+et\s+/i.test(s)) return [s];
+      const parts = s.split(/\s*(?:,|\+|\s+et\s+)\s*/i).map((x) => x.trim()).filter(Boolean);
+      if (parts.length < 2 || parts.length > 6) return [s];
+      if (parts.some((p) => PREP.test(p) || /^\d/.test(p) || p.split(/\s+/).length > 4 || /(?:é|ée|és|ées)$/i.test(p) || /^(?:facultatif|environ)/i.test(norm(p)))) return [s];
+      return parts;
+    }
+    function parseOne(s0) {
+      let s = s0.replace(/[\u{1F000}-\u{1FFFF}\u{2600}-\u{27BF}️‍]/gu, " ").replace(/[’‘ʼ´`]/g, "'").replace(/\s+/g, " ").trim();
+      s = s.replace(/^[^:\d]{3,26}:\s+(?=\S)/, "");
+      const notes = [];
+      s = s.replace(/\(([^)]*)\)/g, (m2, t) => {
+        if (t.trim()) notes.push(t.trim());
+        return " ";
+      }).replace(/\s+/g, " ").trim();
+      s = s.replace(/^(\d+(?:[.,]\d+)?)\s*(?:ou|à|-)\s*\d+(?:[.,]\d+)?(?!\d)/i, "$1");
+      const altM = s.match(/\s+ou\s+.*$/i);
+      const alt = altM ? altM[0].trim() : "";
+      s = s.replace(/\s+ou\s+.*$/i, "");
+      for (const [re, to] of TYPOS) s = s.replace(re, to);
+      if (!/^[\d½¼¾⅓]/.test(s) && /^(?:(?:une?|petite?s?|grande?s?|belle|bonne|grosse?)\s+)?(?:pinc[ée]e(?!s)|bouquet|gousse(?!s)|bo[iî]te|tranche(?!s)|poign[ée]e?|botte|branche|brin|feuille(?!s)|pot|paquet|sachet|filet|morceau|c\.a\.(?=\s)|c\.?\s*[àa]\.?\s*(?:s|c|soupe|caf[ée])\b|c\.?[cs]\.?(?=\s)|cuill?\.?)/i.test(norm(s))) s = "1 " + s.replace(/^(?:(?:une?|petite?s?|grande?s?|belle|bonne|grosse?|quelques?)\s+)/i, "");
+      let n = norm(s), qty = null, pos = 0, m;
       if (m = n.match(/^(\d+)\s*([½¼¾⅓])/)) {
         qty = +m[1] + FRACS[m[2]];
         pos = m[0].length;
@@ -669,117 +782,259 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
       } else if (m = n.match(/^(\d+(?:[.,]\d+)?)(?:\s*(?:a|-|ou)\s*\d+(?:[.,]\d+)?)?/)) {
         qty = parseFloat(m[1].replace(",", "."));
         pos = m[0].length;
-      } else if ((m = n.match(/^(un|une|deux|trois|quatre|cinq|six)\b/)) && !/^une?\s+(?:pincee|noix de beurre)/.test(n) || (m = n.match(/^(une?|deux|trois)\s+(?=pincee|bouquet|gousse|boite|tranche|poignee|botte|branche|brin|feuille)/))) {
+      } else if (m = n.match(/^(un|une|deux|trois|quatre|cinq|six)\s+(?=pincee|bouquet|gousse|boite|tranche|poignee|botte|branche|brin|feuille|verre|tasse|pot|paquet|sachet|filet|morceau|cuil|c\.?\s?[asc]\b)/)) {
         qty = WORDS[m[1]];
         pos = m[0].length;
       }
-      let rest = n.slice(pos).replace(/^\s+/, ""), fam = "n", unit = "";
+      let rest = n.slice(pos).replace(/^\s+/, ""), fam = "n", u0 = "";
       if (qty !== null) {
+        const adj = rest.replace(/^(?:grosse?|petite?|belle|bonne|grande?)\s+/, "");
+        if (adj !== rest && UNITS.some(([re]) => re.test(adj))) rest = adj;
         for (const [re, f, k] of UNITS) {
           const u = rest.match(re);
           if (u) {
             fam = f;
-            unit = f;
+            if (f === "ml") u0 = { 1e3: "l", 100: "dl", 10: "cl", 1: "ml" }[k];
             qty *= k;
-            rest = rest.slice(u[0].length);
+            rest = rest.slice(u[0].length).replace(/^\s+/, "");
+            if (f === "cas" || f === "cac") rest = rest.replace(/^(?:soupe|cafe)\b\s*/, "");
             break;
           }
         }
+        const sz = rest.match(/^(?:de|d')\s*(\d+(?:[.,]\d+)?)\s*(kg|g|ml|cl|l)\b\s*/);
+        if (sz && ["pot", "bo\xEEte", "sachet", "paquet", "bocal"].includes(fam)) {
+          const u2 = UNITS.find(([re]) => re.test(sz[2])), v = parseFloat(sz[1].replace(",", ".")) * (u2 ? u2[2] : 1);
+          qty = qty * v;
+          fam = u2 ? u2[1] : "n";
+          rest = rest.slice(sz[0].length);
+        }
       }
-      const consumed = n.length - rest.length;
-      let name = raw.slice(consumed).replace(/^\s*(?:de |d['’]|du |des |de l['’]|de la )\s*/i, "").replace(/^\s*(?:de |d['’])/i, "").trim().replace(/[.,;]+$/, "");
-      if (!name) name = raw;
-      const key = norm(name).replace(/\(.*?\)/g, " ").replace(NOISE, " ").replace(/\s+/g, " ").trim().split(" ").map((w) => w.length > 3 && /[sx]$/.test(w) ? w.slice(0, -1) : w).join(" ").replace(/^(?:de |d')/, "");
-      return { qty, fam, unit, name, key, skip: isSkipped(name) };
+      let name;
+      name = s.slice(Math.min(n.length - rest.length, s.length));
+      name = name.replace(/^\s*(?:de la |de l'|du |des |de |d')\s*/i, "").replace(/^\s*(?:de |d')/i, "");
+      const tail = name.match(/\s+(\d+(?:[.,]\d+)?)\s*(branches?|feuilles?|gousses?|brins?|filets?)\b\.?/i);
+      if (tail) {
+        if (qty === null) {
+          qty = parseFloat(tail[1].replace(",", "."));
+          fam = norm(tail[2]).replace(/s$/, "").replace("branche", "branche");
+          fam = { branche: "branche", feuille: "feuille", gousse: "gousse", brin: "brin", filet: "filet" }[fam] || "n";
+        }
+        name = name.replace(tail[0], " ");
+      }
+      name = name.replace(/\b(\w+) \1\b/gi, "$1").replace(/\b(?:facultatif|selon son go[uû]t|au go[uû]t|pour la d[ée]co(?:ration)?|environ|[àa] volont[ée])\b/gi, " ").replace(/\s+/g, " ").replace(/[.,;:+\-–\s]+$/, "").replace(/^[.,;:+\-–\s]+/, "").trim();
+      if (!name) name = s0.replace(/[^\wÀ-ÿ' ]/g, " ").trim();
+      return { qty, fam, name, note: notes.join(", "), alt, u: u0 };
     }
+    function parseIngredient(line) {
+      const raw = String(line || "").replace(/^[\s\-•*·–]+/, "").trim();
+      if (!raw || /:$/.test(raw)) return [];
+      return splitLine(raw.replace(/’/g, "'")).map(parseOne).filter((p) => p.name).map((p) => __spreadProps(__spreadValues({}, p), { skip: isSkippedName(p.name) }));
+    }
+    const DROP = new Set("belle bonne petit petite petits petites grand grande gros grosse jeune jeunes moyen moyenne taille entier entiere frais fraiche fraiches fraichement cru crue crus cuit cuite hache hachee haches hachees cisele ciselee ciselees emince eminee eminees rape rapee rapes pele pelee peles coupe coupee bien mur mure mures bio biologique extra quelque quelques un une".split(" "));
+    const RULES = [
+      [/^huile de olive/, "huile d\u2019olive"],
+      [/^huile( de cuisson| vegetal)?$/, "huile"],
+      [/^lait( entier| demi.ecreme| ecreme| frais)?$/, "lait"],
+      [/^lait de coco/, "lait de coco"],
+      [/^creme (fraiche|epais)/, "cr\xE8me \xE9paisse"],
+      [/^creme( entiere?| liquide| fleurette| fluide)*$/, "cr\xE8me liquide"],
+      [/^farine/, "farine"],
+      [/^oignon( jaune| blanc| doux)?$/, "oignon"],
+      [/^oignon rouge/, "oignon rouge"],
+      [/^echalote/, "\xE9chalote"],
+      [/^poireau/, "poireau"],
+      [/^persil/, "persil"],
+      [/^(?:feuille de )?basilic/, "basilic"],
+      [/^menthe/, "menthe"],
+      [/^tomate.* concass|^pulpe de tomate|^pulpe tomate|^coulis? de tomate|^couli de tomate|^tomate pele|^de de tomate/, "tomates concass\xE9es"],
+      [/^(?:double )?concentre de tomate|^boite de concentre de tomate/, "concentr\xE9 de tomate"],
+      [/^puree de tomate/, "pur\xE9e de tomate"],
+      [/^tomate( multicolore| rond| grappe)?$/, "tomate"],
+      [/^pomme de terre/, "pomme de terre"],
+      [/^patate douce/, "patate douce"],
+      [/^lardon|^laniere de bacon/, "lardons"],
+      [/^oeuf( entier)?$/, "\u0153uf"],
+      [/^jaune de oeuf/, "jaune d\u2019\u0153uf"],
+      [/^blanc de oeuf/, "blanc d\u2019\u0153uf"],
+      [/^(?:bouillon|cube).*legume/, "bouillon de l\xE9gumes"],
+      [/^(?:bouillon|cube).*(?:poulet|volaille)/, "bouillon de poulet"],
+      [/^(?:bouillon|cube).*boeuf/, "bouillon de b\u0153uf"],
+      [/^bouillon$/, "bouillon"],
+      [/^(?:tranche )?jambon blanc/, "jambon blanc"],
+      [/^(?:tranche )?jambon cru/, "jambon cru"],
+      [/^vin blanc/, "vin blanc"],
+      [/^vin rouge/, "vin rouge"],
+      [/^thon/, "thon"],
+      [/^miel/, "miel"],
+      [/^herbe.? (?:de provence|aromatique)/, "herbes de provence"],
+      [/^(?:noix de )?muscade/, "muscade"],
+      [/^pate (?:coquillage|torsade|penne|macaroni|coquillette)|^pate$/, "p\xE2tes"],
+      [/^(?:pousse de )?epinard/, "\xE9pinards"],
+      [/^parmesan/, "parmesan"],
+      [/^thym/, "thym"],
+      [/^laurier/, "laurier"],
+      [/^carotte/, "carotte"],
+      [/^champignon/, "champignons"],
+      [/^lentille vert/, "lentilles vertes"],
+      [/^lentille corail/, "lentilles corail"],
+      [/^lentille$/, "lentilles"],
+      [/^poi chiche|^pois chiche/, "pois chiches"],
+      [/^petit poi|^petit pois/, "petits pois"],
+      [/^sauce tomate (?:au |de )?basilic|^sauce tomate$/, "sauce tomate"],
+      [/^tomate seche|^tomate sechee/, "tomates s\xE9ch\xE9es"],
+      [/^noix de beurre|^beurre (?:doux|demi.sel|sale|mou|ramolli|fondu)?$/, "beurre"],
+      [/^vinaigre (?:de )?balsamique/, "vinaigre balsamique"],
+      [/^vinaigre (?:de )?vin blanc/, "vinaigre de vin blanc"],
+      [/^poivron (?:rouge|vert|jaune|orange)s?$|^poivron$/, "poivron"],
+      [/^gruyere/, "gruy\xE8re"],
+      [/^emmental/, "emmental"],
+      [/^comte/, "comt\xE9"],
+      [/^creme de coco|^lait de coco/, "lait de coco"],
+      [/^citron vert/, "citron vert"],
+      [/^citron$/, "citron"],
+      [/^spaghetti/, "spaghetti"],
+      [/^saucisse$/, "saucisse"]
+    ];
+    const sing = (w) => w.length > 3 && /[s]$/.test(w) && !/(?:ss|us|is|ois|ais)$/.test(w) && !/^(?:mais|bras|pois|riz|jus|anis|cassis|brebis|couscous|tapas|noix|gruyere)$/.test(w) ? w.slice(0, -1) : w;
+    function canonical(name) {
+      if (/petits? pois/i.test(norm(name))) return { display: "petits pois", key: "petit pois" };
+      let s = String(name).replace(/’/g, "'").replace(/[\u{1F000}-\u{1FFFF}\u{2600}-\u{27BF}️]/gu, " ");
+      s = s.replace(/(?:^|\s)[àa] chair \w+/gi, " ").replace(/\bde taille (?:moyenne|normale)\b/gi, " ");
+      const toks = s.split(/\s+/).filter(Boolean).filter((t) => {
+        const x = norm(t).replace(/[^a-z]/g, "");
+        return !(DROP.has(x) || DROP.has(x.replace(/s$/, "")));
+      });
+      while (toks.length && /^(?:de|d'|du|des|a|au|aux|en|et)$/i.test(norm(toks[toks.length - 1]))) toks.pop();
+      const key0 = toks.map((t) => norm(t).replace(/[,;]/g, "")).join(" ").replace(/\bd'/g, "de ").replace(/\s+/g, " ").trim();
+      const keyS = key0.split(" ").map(sing).join(" ");
+      const hit = RULES.find(([re]) => re.test(keyS));
+      if (hit && hit[1]) return { display: hit[1], key: norm(hit[1]).split(" ").map(sing).join(" ") };
+      const HEADS = /^(oeuf|courgette|carotte|oignon|tomate|pomme|poire|poivron|aubergine|citron|orange|echalote|banane|concombre|navet|avocat|endive|kiwi|clementine|patate|saucisse|artichaut|betterave|figue|peche|abricot|fraise|cuisse|escalope|crepe|poireau)s?$/;
+      const ADJ = /^(rouge|vert|jaune|blanc|noir|douce|violette|cerise|sechee|seche|fumee|briseee|brisee|feuilletee|sablee|confit)s$/;
+      const disp = toks.map((t, k) => {
+        const x = norm(t);
+        return k === 0 && HEADS.test(x) && /s$/i.test(t) && !/(?:us|is)$/.test(x) || k > 0 && ADJ.test(x) ? t.slice(0, -1) : t;
+      }).join(" ").replace(/^./, (c) => c.toLowerCase());
+      return { display: disp || name, key: keyS };
+    }
+    return { isSkippedName, parseIngredient, canonical };
+  })();
+  __m.shopping = (() => {
+    const db = __m.db;
+    const { ingredientLines, guessShop, norm } = __m.util;
+    const { parseIngredient, canonical, isSkippedName } = __m.ingredients;
+    const isSkipped = (name) => isSkippedName(name);
+    function parseLine(line) {
+      const items = parseIngredient(line);
+      if (!items.length) return null;
+      const p = items[0], c = canonical(p.name);
+      return { qty: p.qty, fam: p.fam, unit: p.fam, name: c.display, key: c.key, skip: p.skip };
+    }
+    const parseLines = (line) => parseIngredient(line).map((p) => {
+      const c = canonical(p.name);
+      return { qty: p.qty, fam: p.fam === "n" && p.qty !== null && /^bouillon/.test(c.display) ? "cube" : p.fam, unit: p.fam, name: c.display, key: c.key, skip: p.skip };
+    });
+    const PLURAL = { morceau: "morceaux", rouleau: "rouleaux" };
     const fmtNum = (x) => (Math.round(x * 100) / 100).toString().replace(".", ",");
-    const FR = { 0.25: "\xBC", 0.5: "\xBD", 0.75: "\xBE" };
+    const FR = { 0.25: "\xBC", 0.5: "\xBD", 0.75: "\xBE", 0.33: "\u2153", 0.67: "\u2154" };
     const fmtFrac = (x) => {
       const w = Math.floor(x), f = Math.round((x - w) * 100) / 100;
       return FR[f] ? w ? `${w}${FR[f]}` : FR[f] : fmtNum(x);
     };
-    function formatQty(qty, fam) {
+    function formatQty(qty, fam, u) {
       if (qty === null || qty === void 0) return "";
       if (fam === "g") return qty >= 1e3 ? `${fmtNum(qty / 1e3)} kg` : `${fmtNum(qty)} g`;
-      if (fam === "ml") return qty >= 1e3 ? `${fmtNum(qty / 1e3)} l` : qty >= 10 && qty % 10 === 0 ? `${fmtNum(qty / 10)} cl` : `${fmtNum(qty)} ml`;
+      if (fam === "ml") return qty >= 1e3 ? `${fmtNum(qty / 1e3)} l` : qty >= 10 ? `${fmtNum(qty / 10)} cl` : `${fmtNum(qty)} ml`;
       if (fam === "cas") return `${fmtFrac(qty)} c. \xE0 s.`;
       if (fam === "cac") return `${fmtFrac(qty)} c. \xE0 c.`;
       if (fam === "n") return fmtFrac(qty);
       return `${fmtFrac(qty)} ${qty > 1 ? PLURAL[fam] || fam + "s" : fam}`;
     }
+    const LIQUID = /^(huile|lait|creme|vinaigre|vin |vin$|bouillon|jus |sauce soja|eau|cafe|biere|cidre)/;
+    const TO_ML = { cas: 15, cac: 5, verre: 200, tasse: 240, filet: 10 };
+    function combine(list, key) {
+      const liquid = LIQUID.test(key), out = {};
+      list.forEach((a) => {
+        let { qty, fam } = a;
+        if (liquid && TO_ML[fam] && !(fam === "filet" && qty > 3)) {
+          qty *= TO_ML[fam];
+          fam = "ml";
+        } else if (liquid && fam === "g") fam = "ml";
+        out[fam] = (out[fam] || 0) + qty;
+      });
+      return Object.keys(out).map((f) => ({ fam: f, qty: out[f] }));
+    }
+    const amountsText = (list) => list.map((a) => list.length > 1 && a.fam === "n" ? `${formatQty(a.qty, "n")} pi\xE8ce${a.qty > 1 ? "s" : ""}` : formatQty(a.qty, a.fam)).join(" + ") || null;
+    const amountsOf = (row) => !row.quantity ? [] : String(row.quantity).split(/\s*\+\s*/).map((part) => {
+      const p = parseLine(part + " " + row.name);
+      return p && p.qty !== null ? { qty: p.qty, fam: p.fam } : null;
+    }).filter(Boolean);
+    const keyOf = (row) => canonical(row.name).key;
+    const addTitle = (t, title) => !title || (t || "").split(", ").includes(title) ? t : [t, title].filter(Boolean).join(", ").slice(0, 120);
     const itemLabel = (row) => {
       if (!row.quantity) return row.name;
-      if (/^[\d.,/\s]+$/.test(row.quantity)) return `${row.quantity} ${row.name}`;
-      return `${row.quantity} ${/^[aeiouyhéèêâîôœ]/i.test(row.name) ? "d\u2019" : "de "}${row.name}`;
+      const first = amountsOf(row)[0], name = first ? plural(row.name, first.qty, first.fam) : row.name;
+      if (/^[\d.,/\s½¼¾]+$/.test(row.quantity)) return `${row.quantity} ${name}`;
+      return `${row.quantity} ${VOWEL.test(name) ? "d\u2019" : "de "}${name}`;
     };
-    const rowText = (r) => r.quantity ? `${r.quantity} ${r.name}` : r.name;
-    const sameFamily = (a, b) => a && b && a.key === b.key && a.fam === b.fam;
-    const addTitle = (t, title) => !title || (t || "").split(", ").includes(title) ? t : [t, title].filter(Boolean).join(", ").slice(0, 120);
     async function addLines(lines, title, { dropSaltPepper = true, shop = null } = {}) {
-      var _a;
-      const parsed = lines.map(parseLine).filter((p) => p && !(dropSaltPepper && p.skip));
-      const existing = db.store.t.shopping_items.filter((i) => !i.checked).map((row) => ({ row, p: parseLine(rowText(row)), dirty: false, title: row.recipe_title }));
+      const parsed = lines.reduce((a, l) => a.concat(parseLines(l)), []).filter((p) => !(dropSaltPepper && p.skip));
+      const existing = db.store.t.shopping_items.filter((i) => !i.checked).map((row) => ({ row, key: keyOf(row), name: row.name, amounts: amountsOf(row), title: row.recipe_title, dirty: false }));
       const fresh = [];
       let count = 0;
       for (const p of parsed) {
-        const hit = existing.find((x) => sameFamily(x.p, p)) || fresh.find((x) => sameFamily(x.p, p));
+        const hit = existing.find((x) => x.key === p.key) || fresh.find((x) => x.key === p.key);
+        const am = p.qty !== null ? [{ qty: p.qty, fam: p.fam }] : [];
         if (!hit) {
-          fresh.push({ p: __spreadValues({}, p), title });
+          fresh.push({ key: p.key, name: p.name, amounts: am, title });
           count++;
           continue;
         }
-        if (p.qty !== null) {
-          hit.p.qty = ((_a = hit.p.qty) != null ? _a : 0) + p.qty;
-          hit.dirty = true;
-          count++;
-        }
+        hit.amounts = hit.amounts.concat(am);
+        hit.dirty = true;
+        count++;
         const t = addTitle(hit.title, title);
-        if (t !== hit.title) {
-          hit.title = t;
-          hit.dirty = true;
-        }
+        if (t !== hit.title) hit.title = t;
       }
-      for (const x of existing.filter((e) => e.dirty)) await db.patch("shopping_items", x.row.id, { name: x.p.name, quantity: formatQty(x.p.qty, x.p.fam) || null, recipe_title: x.title || null });
-      await db.addMany("shopping_items", fresh.map((f) => ({ name: f.p.name, quantity: formatQty(f.p.qty, f.p.fam) || null, shop: shop || guessShop(f.p.name), recipe_title: f.title || null, checked: false })));
+      for (const x of existing.filter((e) => e.dirty)) await db.patch("shopping_items", x.row.id, { quantity: amountsText(combine(x.amounts, x.key)), recipe_title: x.title || null });
+      await db.addMany("shopping_items", fresh.map((f) => ({ name: f.name, quantity: amountsText(combine(f.amounts, f.key)), shop: shop || guessShop(f.name), recipe_title: f.title || null, checked: false })));
       return count;
     }
     const addIngredients = (recipe) => addLines(ingredientLines(recipe.ingredients), recipe.title);
     async function tidyList() {
-      var _a;
       const rows = db.store.t.shopping_items.filter((i) => !i.checked);
       let removed = 0, merged = 0, moved = 0;
       const groups = [];
       for (const row of rows) {
-        const p = parseLine(rowText(row));
+        const p = parseLine(row.name);
         if (!p || p.skip) {
           await db.del("shopping_items", row.id);
           removed++;
           continue;
         }
-        const g = groups.find((x) => sameFamily(x.p, p));
+        const c = canonical(row.name), g = groups.find((x) => x.key === c.key);
+        const am = amountsOf(row);
         if (g) {
-          g.p.qty = p.qty !== null ? ((_a = g.p.qty) != null ? _a : 0) + p.qty : g.p.qty;
+          g.amounts = g.amounts.concat(am);
           g.title = addTitle(g.title, row.recipe_title);
           g.drop.push(row.id);
-        } else groups.push({ p: __spreadValues({}, p), row, title: row.recipe_title, drop: [] });
+        } else groups.push({ key: c.key, name: c.display, row, amounts: am, title: row.recipe_title, drop: [] });
       }
       for (const g of groups) {
         for (const id of g.drop) {
           await db.del("shopping_items", id);
           merged++;
         }
-        const shop = guessShop(g.p.name), quantity = formatQty(g.p.qty, g.p.fam) || null;
-        if (g.drop.length || g.row.name !== g.p.name || (g.row.quantity || null) !== quantity || g.row.shop !== shop) {
+        const shop = guessShop(g.name), quantity = amountsText(combine(g.amounts, g.key));
+        if (g.drop.length || g.row.name !== g.name || (g.row.quantity || null) !== quantity || g.row.shop !== shop) {
           if (g.row.shop !== shop) moved++;
-          await db.patch("shopping_items", g.row.id, { name: g.p.name, quantity, shop, recipe_title: g.title || null });
+          await db.patch("shopping_items", g.row.id, { name: g.name, quantity, shop, recipe_title: g.title || null });
         }
       }
       return { removed, merged, moved };
     }
-    const lowerFirst = (t) => /^[A-ZÀ-ÝŒ][a-zà-ÿœ’' ]/.test(t) ? t[0].toLowerCase() + t.slice(1) : t;
     const VOWEL = /^(?:[aeiouyàâäéèêëîïôöùûüœ]|huile|herbe|huitre|huître)/i;
-    const tidyName = (t) => lowerFirst(String(t).replace(/\s+/g, " ").replace(/([A-Za-zÀ-ÿ])'(?=[A-Za-zÀ-ÿ])/g, "$1\u2019").replace(/\boeufs?\b/gi, (m) => m.length > 4 ? "\u0153ufs" : "\u0153uf").replace(/\bboeuf/gi, "b\u0153uf").replace(/pommes? de terres?\b/gi, "pomme de terre").replace(/\s*([,;])\s*/g, "$1 ").replace(/[.,;\s]+$/, "").trim());
-    const COUNTABLE = /^(œuf|courgette|carotte|oignon|tomate|pomme de terre|pomme|poire|poivron|aubergine|citron|orange|échalote|champignon|banane|concombre|navet|avocat|endive|kiwi|clémentine|patate|tranche|filet|gousse|cuisse|escalope|saucisse|tortilla|crêpe|poireau|artichaut|betterave|figue|pêche|abricot|fraise|brin|feuille)\b/i;
+    const COUNTABLE = /^(œuf|courgette|carotte|oignon|tomate|pomme de terre|pomme|poire|poivron|aubergine|citron|orange|échalote|champignon|banane|concombre|navet|avocat|endive|kiwi|clémentine|patate|tranche|filet|gousse|cuisse|escalope|saucisse|tortilla|crêpe|poireau|artichaut|betterave|figue|pêche|abricot|fraise|brin|feuille|bûche|pâte(?= (?:brisée|feuilletée|sablée)))\b/i;
     const VEG_KG = /^(pomme de terre|carotte|tomate|courgette|oignon|aubergine|poireau|champignon|patate|navet|betterave|pomme|poire)\b/i;
     const plural = (name, qty, fam) => {
       const m = name.match(COUNTABLE);
@@ -787,21 +1042,221 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
       const need = fam === "n" && qty > 1 || fam === "g" && qty >= 250 && VEG_KG.test(name);
       if (!need) return name;
       const head = m[0], rest = name.slice(head.length);
-      return (/[sxz]$/i.test(head) ? head : head + "s") + rest;
+      const adj = (r) => r.replace(/\b(rouge|vert|jaune|blanc|noir|douce|violette|cerise|séchée|brisée|feuilletée|sablée|fumée|confit)\b/gi, (w) => /s$/i.test(w) ? w : w + "s");
+      if (/^pomme de terre/i.test(head)) return "pommes de terre" + rest;
+      return (/[sxz]$/i.test(head) ? head : head + "s") + adj(rest);
     };
+    const TYPO = [[/\bcarrotes?\b/gi, (m) => /s$/i.test(m) ? "carottes" : "carotte"], [/\bsauss?ices?\b/gi, (m) => /s$/i.test(m) ? "saucisses" : "saucisse"], [/\bsaussice/gi, "saucisse"], [/\bspagh?etthi/gi, "spaghetti"], [/\bbou?lghour\b/gi, "boulgour"], [/\bcebettes?\b/gi, "ciboule"], [/\bpari\b/gi, "Paris"], [/\bpoigne\b/gi, "poign\xE9e"], [/\brapé(s?)\b/gi, "r\xE2p\xE9$1"], [/\bpinc\.?(?=\s)/gi, "pinc\xE9e"], [/\btran\.(?=\s)/gi, "tranche"], [/\bpommes? de terres?\b/gi, (m) => /^pommes/i.test(m) ? "pommes de terre" : "pomme de terre"], [/\boeufs?\b/gi, (m) => /s$/i.test(m) ? "\u0153ufs" : "\u0153uf"], [/\bboeuf\b/gi, "b\u0153uf"], [/\blegumes?\b/gi, (m) => /s$/i.test(m) ? "l\xE9gumes" : "l\xE9gume"], [/\bherbes? de provence\b/gi, "herbes de Provence"], [/\bcreme\b/gi, "cr\xE8me"], [/\bpate\b/gi, "p\xE2te"], [/\bsouple\b/gi, "souple"]];
+    const SPOON_S = /\b(?:c\.?\s?à\.?\s?s\b\.?|c\.?\s?a\.?\s?s\b\.?|c\.à\.s\.?|cs\b\.?|c\.s\b\.?|cuill?[èe]res?(?:\(s\))?\.?\s+à\s+soupe|cuill?[èe]re?\.?\s+à\s+s\b\.?|cuil\.?\s+à\s+soupe|c\.?\s+à\s+soupe|tbsp)/gi;
+    const SPOON_C = /\b(?:c\.?\s?à\.?\s?c\b\.?|c\.?\s?a\.?\s?c\b\.?|c\.à\.c\.?|cc\b\.?|c\.c\b\.?|càc\b|cuill?[èe]res?(?:\(s\))?\.?\s+à\s+caf[ée]|cuil\.?\s+à\s+caf[ée]|c\.?\s+à\s+caf[ée]|tsp)/gi;
+    const FRAC = { "1/2": "\xBD", "1/4": "\xBC", "3/4": "\xBE", "1/3": "\u2153", "2/3": "\u2154", "0.5": "\xBD", "0,5": "\xBD", "0.25": "\xBC", "0,25": "\xBC", "0.75": "\xBE" };
+    const num = (t) => parseFloat(String(t).replace(",", "."));
     function harmonizeLine(line) {
-      const raw = String(line || "").replace(/\s+/g, " ").replace(/^[\s\-•*·–]+/, "").trim();
-      if (!raw || /:$/.test(raw)) return raw;
-      const p = parseLine(raw);
-      if (!p || /^\d/.test(p.name) || /^\d+(?:[.,]\d+)?\s*(?:a|-|ou)\s*\d/.test(norm(raw))) return /^\d/.test(raw) ? raw.replace(/'/g, "\u2019") : tidyName(raw);
-      const name = p.qty === null ? tidyName(p.name) : plural(tidyName(p.name), p.qty, p.fam);
-      if (p.qty === null) return name;
-      const q = formatQty(p.qty, p.fam);
-      if (p.fam === "n") return `${q} ${name}`;
-      return `${q} ${VOWEL.test(name) ? "d\u2019" : "de "}${name}`;
+      let t = String(line || "").replace(/[\u{1F000}-\u{1FFFF}\u{2600}-\u{27BF}️‍]/gu, " ").replace(/\s+/g, " ").replace(/^[\s\-•*·–]+/, "").trim();
+      if (!t || /:$/.test(t)) return t;
+      t = t.replace(/(\w)[’‘ʼ´`'](?=\w)/g, "$1\u2019");
+      for (const [re, to] of TYPO) t = t.replace(re, to);
+      t = t.replace(SPOON_S, "c. \xE0 s.").replace(SPOON_C, "c. \xE0 c.").replace(/c\. à (s|c)\.\s*\./g, "c. \xE0 $1.").replace(/(c\. à s\.) [Ss]oupe\b/, "$1");
+      t = t.replace(/(\d)\s*(kg|g|gr|grammes?|mg)\b\.?/gi, (m2, n, u) => `${n} ${/^kg$/i.test(u) ? "kg" : /^mg$/i.test(u) ? "mg" : "g"}`);
+      t = t.replace(/(\d+(?:[.,]\d+)?|\d+\/\d+|[½¼¾⅓⅔])\s*(ml|cl|dl|l|litres?)\b\.?/gi, (m2, n, u) => {
+        var _a;
+        const v = (_a = { "\xBD": 0.5, "\xBC": 0.25, "\xBE": 0.75, "\u2153": 1 / 3, "\u2154": 2 / 3 }[n]) != null ? _a : n.includes("/") ? n.split("/")[0] / n.split("/")[1] : num(n);
+        const ml = v * { ml: 1, cl: 10, dl: 100, l: 1e3, litre: 1e3, litres: 1e3 }[u.toLowerCase()];
+        return formatQty(Math.round(ml * 100) / 100, "ml");
+      });
+      t = t.replace(/(^|\s)(\d+)\s*(1\/2|1\/4|3\/4)(?=\s)/g, (m2, a, w, f) => `${a}${w}${FRAC[f]}`).replace(/(^|\s)(1\/2|1\/4|3\/4|1\/3|2\/3|0[.,]5|0[.,]25|0[.,]75)(?=\s)/g, (m2, a, f) => a + FRAC[f]);
+      t = t.replace(/^((?:\d+[\d.,/½¼¾⅓⅔]*|[½¼¾⅓⅔])\s*(?:à\s*\d+\s*)?(?:g|kg|mg|cl|l|ml|c\. à s\.|c\. à c\.))\s+(?!de\b|d’|du\b|des\b|d'|\()(\S)/i, (m2, q, c) => `${q} ${/^[aeiouyàâéèêëîïôöùûüœh]/i.test(c) ? "d\u2019" : "de "}${c}`);
+      t = t.replace(/^((?:[\d½¼¾⅓⅔][^a-zA-ZÀ-ÿ]*(?:\s*(?:kg|mg|g|cl|l|ml|c\. à s\.|c\. à c\.)\s+(?:de |d’)?)?)|(?:(?:de |d’)))?([A-ZÀ-ÝŒ])(?=[a-zà-ÿœ])/, (m2, a, c) => (a || "") + c.toLowerCase());
+      const UW = "pinc\xE9e|tranche|gousse|branche|feuille|brin|sachet|bo\xEEte|botte|bouquet|paquet|pot|verre|tasse|poign\xE9e|morceau|cube|rouleau|tige|b\xE2ton|portion";
+      let m = t.match(new RegExp("^(\\d+(?:[.,]\\d+)?)\\s+(" + UW + ")(?=\\s|$)(\\s+(?:de |d\u2019)?)?([A-Z\xC0-\xDD\u0152](?=[a-z\xE0-\xFF\u0153]))?"));
+      if (m) {
+        const q = num(m[1]);
+        t = m[1] + " " + m[2] + (q > 1 && !/s$/.test(m[2]) ? "s" : "") + (m[3] || "") + (m[4] ? m[4].toLowerCase() : "") + t.slice(m[0].length);
+      } else if ((m = t.match(/^(\d+(?:[.,]\d+)?)\s+(?![a-zà-ÿ]\.)([^\s].*)$/)) && num(m[1]) > 1 && COUNTABLE.test(m[2].replace(/^[A-ZÀ-ÝŒ]/, (c) => c.toLowerCase()))) {
+        t = m[1] + " " + plural(m[2].replace(/^[A-ZÀ-ÝŒ]/, (c) => c.toLowerCase()), num(m[1]), "n");
+      }
+      t = t.replace(/^(\d+(?:[.,]\d+)?\s+(?:bouillon|œuf)s?\s)/i, (a, b) => b).replace(/ (Bœuf|Poulet|Légumes|Volaille)\b/g, (a, w) => " " + w.toLowerCase());
+      return t.replace(/\s+/g, " ").replace(/\s+([,.;])/g, "$1").replace(/\s*\.$/, "").trim();
     }
     const harmonizeIngredients = (text) => String(text || "").split(/\r?\n/).map((l) => l.trim() ? harmonizeLine(l) : "").filter((l, i, a) => l || i && a[i - 1]).join("\n").trim();
-    return { isSkipped, parseLine, formatQty, itemLabel, addLines, addIngredients, tidyList, harmonizeLine, harmonizeIngredients };
+    return { isSkipped, parseLine, parseLines, formatQty, itemLabel, addLines, addIngredients, tidyList, harmonizeLine, harmonizeIngredients };
+  })();
+  __m.scan = (() => {
+    const { esc } = __m.util;
+    const { harmonizeIngredients } = __m.shopping;
+    const SRC = "https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js";
+    const LANG = "https://tessdata.projectnaptha.com/4.0.0_fast";
+    let loading = null;
+    function loadLib() {
+      if (window.Tesseract) return Promise.resolve();
+      return loading || (loading = new Promise((res, rej) => {
+        const s = document.createElement("script");
+        s.src = SRC;
+        s.onload = res;
+        s.onerror = () => {
+          loading = null;
+          rej(new Error("biblioth\xE8que de lecture indisponible (connexion ?)"));
+        };
+        document.head.appendChild(s);
+      }));
+    }
+    async function prepare(file, max = 1800) {
+      const bmp = window.createImageBitmap ? await createImageBitmap(file) : await new Promise((res, rej) => {
+        const im = new Image();
+        im.onload = () => res(im);
+        im.onerror = rej;
+        im.src = URL.createObjectURL(file);
+      });
+      const w0 = bmp.width || bmp.naturalWidth, h0 = bmp.height || bmp.naturalHeight, k = Math.min(1, max / Math.max(w0, h0));
+      const c = document.createElement("canvas");
+      c.width = Math.round(w0 * k);
+      c.height = Math.round(h0 * k);
+      const x = c.getContext("2d");
+      x.drawImage(bmp, 0, 0, c.width, c.height);
+      const d = x.getImageData(0, 0, c.width, c.height), p = d.data;
+      let lo = 255, hi = 0;
+      for (let i = 0; i < p.length; i += 4) {
+        const g = p[i] * 0.3 + p[i + 1] * 0.59 + p[i + 2] * 0.11 | 0;
+        p[i] = g;
+        if (g < lo) lo = g;
+        if (g > hi) hi = g;
+      }
+      const span = Math.max(40, hi - lo);
+      for (let i = 0; i < p.length; i += 4) {
+        const v = Math.max(0, Math.min(255, (p[i] - lo) * 255 / span));
+        p[i] = p[i + 1] = p[i + 2] = v;
+      }
+      x.putImageData(d, 0, 0);
+      return c;
+    }
+    async function ocr(file, onProgress) {
+      onProgress && onProgress("Chargement du lecteur de texte (la premi\xE8re fois, quelques Mo)\u2026");
+      await loadLib();
+      const canvas = await prepare(file);
+      const r = await window.Tesseract.recognize(canvas, "fra", { langPath: LANG, logger: (m) => {
+        if (onProgress && m.status === "recognizing text") onProgress(`Lecture de la photo\u2026 ${Math.round((m.progress || 0) * 100)} %`);
+        else if (onProgress && /loading|initializ/.test(m.status || "")) onProgress("Pr\xE9paration du lecteur\u2026");
+      } });
+      return String(r && r.data && r.data.text || "");
+    }
+    const NOISE = /(mis en bouteille|propri[ée]taire|r[ée]colt|produit (de|en)|contient|sulfite|alc\.?|\bvol\b|%|enceinte|grossesse|www\.|\.com|\.fr\b|e\s?\d{2,3}\s?ml|\bcl\b|lot\b|recyc|trier|consommation|abus|sant[ée]|imported|product of)/i;
+    const REGIONS = [["Bordeaux", "France"], ["M\xE9doc", "France"], ["Haut-M\xE9doc", "France"], ["Margaux", "France"], ["Pauillac", "France"], ["Saint-Est\xE8phe", "France"], ["Saint-Julien", "France"], ["Pomerol", "France"], ["Saint-\xC9milion", "France"], ["Pessac-L\xE9ognan", "France"], ["Graves", "France"], ["Sauternes", "France"], ["Bourgogne", "France"], ["Chablis", "France"], ["Meursault", "France"], ["Pommard", "France"], ["Gevrey-Chambertin", "France"], ["Beaujolais", "France"], ["Morgon", "France"], ["Brouilly", "France"], ["C\xF4tes du Rh\xF4ne", "France"], ["Ch\xE2teauneuf-du-Pape", "France"], ["Gigondas", "France"], ["Hermitage", "France"], ["Sancerre", "France"], ["Pouilly-Fum\xE9", "France"], ["Vouvray", "France"], ["Chinon", "France"], ["Muscadet", "France"], ["Alsace", "France"], ["Languedoc", "France"], ["Minervois", "France"], ["Corbi\xE8res", "France"], ["Provence", "France"], ["Bandol", "France"], ["Cahors", "France"], ["Madiran", "France"], ["Juran\xE7on", "France"], ["Champagne", "France"], ["Cr\xE9mant", "France"], ["Chianti", "Italie"], ["Barolo", "Italie"], ["Barbaresco", "Italie"], ["Prosecco", "Italie"], ["Toscana", "Italie"], ["Rioja", "Espagne"], ["Ribera del Duero", "Espagne"], ["Cava", "Espagne"], ["Douro", "Portugal"], ["Porto", "Portugal"], ["Mosel", "Allemagne"], ["Napa", "\xC9tats-Unis"], ["Mendoza", "Argentine"], ["Marlborough", "Nouvelle-Z\xE9lande"]];
+    const noacc = (t) => String(t).toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+    function parseWine(text) {
+      const out = {}, raw = String(text || "");
+      const lines = raw.split(/\r?\n/).map((l) => l.replace(/[^\wÀ-ÿ'’.,;:()&\/%°\- ]/g, " ").replace(/\s+/g, " ").trim()).filter((l) => l.length > 2 && (l.match(/[A-Za-zÀ-ÿ]/g) || []).length >= Math.ceil(l.length * 0.5));
+      const all = noacc(raw);
+      const vint = raw.match(/\b(19[5-9]\d|20[0-3]\d)\b/g);
+      if (vint) out.vintage = Number(vint[vint.length - 1]);
+      let m = raw.match(/\b(\d{2,3})\s?(cl|ml)\b/i);
+      if (m) {
+        const cl = m[2].toLowerCase() === "ml" ? Math.round(Number(m[1]) / 10) : Number(m[1]);
+        if ([20, 37, 50, 70, 75, 150, 300].includes(cl) || cl >= 10 && cl <= 300) out.bottle_size = `${cl} cl`;
+      }
+      if (/magnum/.test(all)) out.bottle_size = "150 cl";
+      if (/champagne|cremant|prosecco|\bcava\b|brut\b|methode traditionnelle|petillant/.test(all)) out.wine_type = "Effervescent";
+      else if (/sauternes|liquoreux|moelleux|vendanges tardives/.test(all)) out.wine_type = "Liquoreux";
+      else if (/porto|banyuls|xeres|sherry|maury|pineau|muscat de/.test(all)) out.wine_type = "Fortifi\xE9";
+      else if (/whisky|whiskey|cognac|armagnac|\brhum\b|\bgin\b|vodka|calvados|tequila/.test(all)) out.wine_type = "Spiritueux";
+      else if (/\brose\b/.test(all)) out.wine_type = "Ros\xE9";
+      else if (/\bblanc\b|blanc de/.test(all)) out.wine_type = "Blanc";
+      else if (/\brouge\b/.test(all)) out.wine_type = "Rouge";
+      const ac = raw.match(/(?:A\.?O\.?[CP]\.?|Appellation)\s+([A-Za-zÀ-ÿ'’\- ]{3,40}?)\s+(?:Contr[ôo]l[ée]e|Prot[ée]g[ée]e|A\.?O\.?[CP])/i);
+      const hit = REGIONS.find(([r]) => all.indexOf(noacc(r)) >= 0);
+      if (ac) {
+        out.region = ac[1].trim().toLowerCase().replace(/(^|[\s\-])([a-zà-ÿ])/g, (s, a, b) => a + b.toUpperCase());
+        const h2 = REGIONS.find(([r]) => noacc(ac[1]).indexOf(noacc(r)) >= 0);
+        out.country = h2 ? h2[1] : "France";
+      } else if (hit) {
+        out.region = hit[0];
+        out.country = hit[1];
+      }
+      if (!out.country) {
+        if (/italia|italy|\bdocg?\b|\bigt\b/.test(all)) out.country = "Italie";
+        else if (/espana|spain|denominacion/.test(all)) out.country = "Espagne";
+        else if (/portugal/.test(all)) out.country = "Portugal";
+        else if (/deutsch|germany|qualitatswein/.test(all)) out.country = "Allemagne";
+        else if (/\bfrance\b|\baoc\b|\baop\b/.test(all)) out.country = "France";
+      }
+      const cand = lines.filter((l) => !NOISE.test(l) && !/^(\d|[a-z]\s)/.test(l) && l.length <= 48);
+      const prod = cand.find((l) => /(ch[aâ]teau|domaine|clos\b|maison|\bmas\b|cave |cuv[ée]e)/i.test(l));
+      if (prod) out.producer = prod.replace(/\b\d{4}\b/g, "").trim();
+      const rest = cand.filter((l) => l !== prod && !(out.region && noacc(l) === noacc(out.region)) && !/^(appellation|grand vin|vin de)/i.test(l) && !/\b(A\.?O\.?[CP]|contr[ôo]l|prot[ée]g[ée]e)/i.test(l) && !/\b(19|20)\d\d\b/.test(l));
+      const upper = rest.filter((l) => l === l.toUpperCase()).sort((a, b) => b.length - a.length)[0];
+      out.name = (upper || rest.sort((a, b) => b.length - a.length)[0] || out.producer || "").replace(/\s+/g, " ");
+      if (out.name) out.name = out.name.toLowerCase().replace(/(^|[\s'’\-])([a-zà-ÿ])/g, (s, a, b) => a + b.toUpperCase());
+      return out;
+    }
+    function parseRecipe(text) {
+      const out = {};
+      const lines = String(text || "").split(/\r?\n/).map((l) => l.replace(/[^\wÀ-ÿ'’.,;:()&\/%°€\-–•½¼¾+ ]/g, " ").replace(/\s+/g, " ").trim()).filter((l) => l.length > 1);
+      if (!lines.length) return out;
+      const iIng = lines.findIndex((l) => /^ingr[ée]dients?\b/i.test(l)), iPrep = lines.findIndex((l, i) => i > iIng && /^(pr[ée]paration|recette|d[ée]roulement|instructions?|[ée]tapes?|progression)\b/i.test(l));
+      const head = lines.slice(0, iIng > 0 ? iIng : 1);
+      const title = head.find((l) => l.length > 3 && !/^(pour|temps|pr[ée]paration|cuisson|\d)/i.test(l)) || lines[0];
+      out.title = title.replace(/[.:]+$/, "").replace(/^./, (c) => c.toUpperCase());
+      const all = lines.join(" ");
+      let m = all.match(/(?:pour\s+)?(\d{1,2})\s*(?:personnes?|pers\b\.?|parts?|portions?|convives)/i);
+      if (m) out.servings = Number(m[1]);
+      m = all.match(/pr[ée]paration\s*:?\s*(\d+)\s*(h|min)/i);
+      if (m) out.prep_minutes = m[2].toLowerCase() === "h" ? Number(m[1]) * 60 : Number(m[1]);
+      m = all.match(/cuisson\s*:?\s*(\d+)\s*(h|min)/i);
+      if (m) out.cook_minutes = m[2].toLowerCase() === "h" ? Number(m[1]) * 60 : Number(m[1]);
+      let ing = [], steps = [];
+      if (iIng >= 0) {
+        ing = lines.slice(iIng + 1, iPrep > iIng ? iPrep : void 0);
+        if (iPrep > iIng) steps = lines.slice(iPrep + 1);
+      } else {
+        const body = lines.filter((l) => l !== title);
+        ing = body.filter((l) => /^(\d|[-•]\s|[½¼¾]|une?\s|quelques|sel|poivre)/i.test(l) && l.length < 60);
+        steps = body.filter((l) => ing.indexOf(l) < 0 && l.length > 25);
+      }
+      const ingOut = [];
+      ing.forEach((l) => {
+        if (/^(pour|temps|cuisson|pr[ée]paration)\b/i.test(l)) return;
+        ingOut.push(l.replace(/^[-•]\s*/, ""));
+      });
+      out.ingredients = harmonizeIngredients(ingOut.join("\n"));
+      const joined = steps.join(" ").replace(/(\d+)\s*[.)]\s+(?=[A-ZÉÈÀ])/g, "\n").replace(/\.\s+(?=[A-ZÉÈÀ])/g, ".\n");
+      out.instructions = joined.split("\n").map((s) => s.trim()).filter(Boolean).join("\n");
+      return out;
+    }
+    const scanBox = (label) => `<div class="scanbox"><b>${esc(label)}</b><div class="scanbtns"><label class="btn small">Prendre une photo<input type="file" accept="image/*" capture="environment" id="scanCam" hidden></label><label class="btn small">Choisir une photo<input type="file" accept="image/*" id="scanPick" hidden></label></div><div id="scanMsg" class="muted small">La fiche est remplie automatiquement ; v\xE9rifiez les champs avant d\u2019enregistrer.</div></div>`;
+    function bindScan(root, run) {
+      const msg = (t) => {
+        const m = root.querySelector("#scanMsg");
+        if (m) m.textContent = t;
+      };
+      const go = async (e) => {
+        const f = e.target.files && e.target.files[0];
+        e.target.value = "";
+        if (!f) return;
+        try {
+          msg("Lecture en cours\u2026");
+          const n = await run(f, msg);
+          msg(n ? `${n} champ${n > 1 ? "s" : ""} rempli${n > 1 ? "s" : ""} : v\xE9rifiez et corrigez si besoin.` : "Peu de texte reconnu : essayez une photo plus nette, bien \xE9clair\xE9e et de face, ou saisissez la fiche \xE0 la main.");
+        } catch (err) {
+          console.error(err);
+          msg("Lecture impossible sur cet appareil (" + (err.message || "erreur") + "). Saisissez la fiche \xE0 la main.");
+        }
+      };
+      ["#scanCam", "#scanPick"].forEach((s) => {
+        const i = root.querySelector(s);
+        if (i) i.onchange = go;
+      });
+    }
+    function fillForm(form, values) {
+      let n = 0;
+      Object.keys(values).forEach((k) => {
+        const el = form.elements[k], v = values[k];
+        if (!el || v === void 0 || v === null || v === "") return;
+        if (el.value && String(el.value).trim() && !(k === "wine_type" || k === "category")) return;
+        el.value = v;
+        n++;
+      });
+      return n;
+    }
+    return { ocr, parseWine, parseRecipe, scanBox, bindScan, fillForm };
   })();
   __m.seed = (() => {
     const db = __m.db;
@@ -902,6 +1357,7 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
   __m.recipes = (() => {
     const { $, $$, esc, toast, openModal, closeModal, formDialog, compressImage, ymd, DAYS } = __m.util;
     const db = __m.db;
+    const { scanBox, bindScan, fillForm, ocr, parseRecipe } = __m.scan;
     const { openIdea } = __m.ideas;
     const { randomMeal, randomCocktail, MEAL_CATS } = __m.ext;
     const { importRecipes } = __m.seed;
@@ -923,9 +1379,9 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
       const imp = recipes().length === 0 ? `<div class="card glass accent"><h3 class="script">Premier d\xE9marrage</h3><p>Votre sauvegarde MyRecipeBox (81 recettes avec photos) est pr\xEAte \xE0 \xEAtre import\xE9e.</p><button class="btn primary" id="impRec">Importer mes recettes</button></div>` : "";
       return `${imp}<div class="bar wrapbar">
     <input type="search" id="rq" placeholder="Rechercher une recette ou un ingr\xE9dient\u2026" value="${esc(query)}">
-    <button class="btn" id="ideaMeal">\u2728 Id\xE9e de ${mealCat.toLowerCase()}</button>
-    <button class="btn" id="ideaAlc">\u{1F378} Cocktail</button><button class="btn" id="ideaNoAlc">\u{1F964} Sans alcool</button>
-    <button class="btn" id="harmBtn" title="\xC9crire tous les ingr\xE9dients de la m\xEAme fa\xE7on">\u2728 Harmoniser</button><button class="btn primary" id="addRec">\uFF0B Recette</button></div>
+    <button class="btn" id="ideaMeal">Id\xE9e de ${mealCat.toLowerCase()}</button>
+    <button class="btn" id="ideaAlc">Cocktail</button><button class="btn" id="ideaNoAlc">Sans alcool</button>
+    <button class="btn" id="harmBtn" title="\xC9crire tous les ingr\xE9dients de la m\xEAme fa\xE7on">Harmoniser</button><button class="btn" id="scanRec">Scanner une recette</button><button class="btn primary" id="addRec">\uFF0B Recette</button></div>
   <div class="chips" id="rchips"><button data-c="" class="${!cat && !favOnly ? "on" : ""}">Toutes (${recipes().length})</button><button data-fav class="${favOnly ? "on" : ""}">\u2665 Favorites</button>
     ${CATEGORIES.map((c) => `<button data-c="${esc(c)}" class="${cat === c ? "on" : ""}">${esc(c)}</button>`).join("")}</div>
   <div class="rgrid" id="rgrid">${gridHTML()}</div>`;
@@ -947,7 +1403,7 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
     <div><h4>Pr\xE9paration</h4>${lines(r.instructions).map((l, i) => `<p><b class="num">${i + 1}</b> ${esc(l)}</p>`).join("") || '<p class="muted">\u2014</p>'}</div></div>
     ${r.notes ? `<h4>Notes</h4><p>${esc(r.notes)}</p>` : ""}${r.nutrition ? `<details><summary>Valeurs nutritionnelles</summary><pre>${esc(r.nutrition)}</pre></details>` : ""}
     ${r.source_url ? `<p><a href="${esc(r.source_url)}" target="_blank" rel="noopener">Recette d\u2019origine \u2197</a></p>` : ""}
-    <div class="formactions wrap"><button class="btn" data-act="plan">\u{1F4C5} Planifier</button><button class="btn" data-act="shop">\u{1F6D2} Ajouter aux courses</button><span class="grow"></span>
+    <div class="formactions wrap"><button class="btn" data-act="plan">Planifier</button><button class="btn" data-act="shop">Ajouter aux courses</button><span class="grow"></span>
       <button class="btn" data-act="edit">Modifier</button><button class="btn ghost" data-close>Fermer</button></div></div>`, {
         wide: true,
         onMount: (root) => {
@@ -988,8 +1444,19 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
         }
       });
     }
-    function editRecipe(r = {}) {
+    function editRecipe(r = {}, opts = {}) {
       formDialog({
+        extra: r.id ? "" : scanBox("Remplir depuis une photo de la recette"),
+        onMount: (root, form) => {
+          bindScan(root, async (file, msg) => {
+            const p = parseRecipe(await ocr(file, msg));
+            return fillForm(form, p);
+          });
+          if (opts.scan) {
+            const cam = root.querySelector("#scanCam");
+            if (cam) cam.click();
+          }
+        },
         title: r.id ? "Modifier la recette" : "Nouvelle recette",
         wide: true,
         values: __spreadValues({ category: "Plat" }, r),
@@ -1038,6 +1505,7 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
         $("#rgrid", root).innerHTML = gridHTML();
       };
       $("#addRec", root).onclick = () => editRecipe();
+      $("#scanRec", root).onclick = () => editRecipe({}, { scan: true });
       $("#harmBtn", root).onclick = async () => {
         let n = 0;
         for (const r of recipes()) {
@@ -1073,6 +1541,7 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
   __m.cellar = (() => {
     const { $, $$, esc, toast, openModal, closeModal, formDialog, compressImage, pick, norm } = __m.util;
     const db = __m.db;
+    const { scanBox, bindScan, fillForm, ocr, parseWine } = __m.scan;
     const { openIdea } = __m.ideas;
     const { randomMeal, randomCocktail, PAIRING, SPIRIT_MAP } = __m.ext;
     const { importCellar } = __m.seed;
@@ -1292,7 +1761,7 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
       return `<div class="stats">${stat(sum(all), "bouteilles")}${stat(inCave().filter((b) => b.slot).length + "/28", "cave \xE0 vin")}${stat(sum(all.filter((b) => b.location_kind === "placard")), "en placard")}${stat(sum(all.filter((b) => b.location_kind === "exterieur")), "\xE0 l\u2019ext\xE9rieur")}${stat(totalValue() ? totalValue().toLocaleString("fr-FR") + " \u20AC" : "\u2014", "valeur estim\xE9e")}</div>
   ${imp}
   <div class="bar"><div class="seg" id="cseg">${[["cave", "Cave \xE0 vin"], ["placard", "Placards"], ["exterieur", "Ext\xE9rieur"], ["tout", "Inventaire"]].map(([k, l]) => `<button data-v="${k}" class="${view === k ? "on" : ""}">${l}</button>`).join("")}</div>
-   <span class="grow"></span><button class="btn" id="labelBtn">\u{1F3F7} \xC9tiquettes</button><button class="btn" id="priceBtn">\u{1F4B6} Prix des bouteilles</button><button class="btn" id="cocktailBtn">\u{1F378} Id\xE9e de cocktail</button><button class="btn primary" data-add="${view === "placard" || view === "exterieur" ? view : "cave"}">\uFF0B Bouteille</button></div>
+   <span class="grow"></span><button class="btn" id="scanBtn">Scanner une bouteille</button><button class="btn" id="labelBtn">\xC9tiquettes</button><button class="btn" id="priceBtn">Prix des bouteilles</button><button class="btn" id="cocktailBtn">Id\xE9e de cocktail</button><button class="btn primary" data-add="${view === "placard" || view === "exterieur" ? view : "cave"}">\uFF0B Bouteille</button></div>
   <div id="cview">${view === "cave" ? caveView() : view === "tout" ? inventoryView() : groupedList(view)}</div>`;
     }
     function bottleFields(b) {
@@ -1328,14 +1797,15 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
         ]
       };
     }
-    function editBottle(b = {}, preset = {}) {
+    function editBottle(b = {}, preset = {}, opts = {}) {
+      let scanned = null;
       const base = __spreadValues(__spreadValues({ wine_type: "Rouge", category: "Vin", bottle_size: "75 cl", quantity: 1, location_kind: "cave" }, b), preset);
       const { fields, datalist } = bottleFields(b);
       formDialog({
         title: b.id ? "Modifier la bouteille" : "Ajouter une bouteille",
         fields,
         values: base,
-        extra: datalist,
+        extra: (b.id ? "" : scanBox("Remplir depuis une photo de l\u2019\xE9tiquette")) + datalist,
         wide: true,
         danger: b.id ? { label: "Supprimer", confirm: "Supprimer cette bouteille ?", run: () => db.del("cellar_items", b.id) } : null,
         onMount: (root, form) => {
@@ -1348,9 +1818,21 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
           };
           form.elements.location_kind.onchange = sync;
           sync();
+          bindScan(root, async (file, msg) => {
+            scanned = file;
+            const text = await ocr(file, msg);
+            const p = parseWine(text);
+            if (p.wine_type) form.elements.wine_type.value = p.wine_type;
+            delete p.wine_type;
+            return fillForm(form, p) + (p.wine_type ? 0 : 0);
+          });
+          if (opts.scan) {
+            const cam = root.querySelector("#scanCam");
+            if (cam) cam.click();
+          }
         },
         onSubmit: async (v) => {
-          const photo = v.photo;
+          const photo = v.photo || scanned;
           delete v.photo;
           if (v.location_kind !== "cave") v.slot = null;
           else v.slot = v.slot ? Number(v.slot) : null;
@@ -1382,7 +1864,7 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
     ${row("Prix d\u2019achat", b.purchase_price ? b.purchase_price + " \u20AC" : "")}${row("Source du prix", b.price_note)}${row("Valeur estim\xE9e (par bouteille)", b.estimated_value ? `${b.estimated_value} \u20AC${b.price_updated_at ? ` \xB7 ${b.price_source === "web" ? "estimation web" : "saisi"} le ${new Date(b.price_updated_at).toLocaleDateString("fr-FR")}` : ""}` : "")}${row("Date d\u2019achat", b.acquired_on)}
     ${row("\xC0 boire", b.drinking_window)}${row("Service", b.serving_temperature)}${row("Accords", b.food_pairing)}${row("Notes", b.notes)}${row("Source du prix", b.price_note)}
     ${b.vivino_url ? `<p><a href="${esc(b.vivino_url)}" target="_blank" rel="noopener">Voir sur Vivino \u2197</a></p>` : ""}
-    <div class="formactions wrap"><button class="btn" data-act="meal">\u{1F37D} Id\xE9e de plat</button><button class="btn" data-act="cocktail">\u{1F378} Id\xE9e de cocktail</button><span class="grow"></span>
+    <div class="formactions wrap"><button class="btn" data-act="meal">Id\xE9e de plat</button><button class="btn" data-act="cocktail">Id\xE9e de cocktail</button><span class="grow"></span>
       <button class="btn" data-act="drunk">Bue / sortie</button><button class="btn" data-act="edit">Modifier</button><button class="btn ghost" data-close>Fermer</button></div></div>`, {
         onMount: (root) => {
           $("[data-close]", root).onclick = closeModal;
@@ -1436,12 +1918,12 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
       });
       const rows = [...groups.values()].sort((x, y) => (x.b.producer || x.b.name).localeCompare(y.b.producer || y.b.name, "fr"));
       openModal(`<div class="detail"><h2 class="script">Prix des bouteilles</h2>
-    <p class="muted">Prix moyen d\u2019<b>une</b> bouteille, en euros. Le bouton \u{1F50E} ouvre une recherche de prix (Google Shopping) et \u{1F347} la page Vivino : notez ce que vous trouvez, puis enregistrez. La valeur totale de la cave se recalcule aussit\xF4t.</p>
+    <p class="muted">Prix moyen d\u2019<b>une</b> bouteille, en euros. Le lien \xAB Prix \xBB ouvre une recherche (Google Shopping) et \xAB Vivino \xBB la page Vivino : notez ce que vous trouvez, puis enregistrez. La valeur totale de la cave se recalcule aussit\xF4t.</p>
     <label class="field check"><input type="checkbox" id="onlyMissing"> <span>Afficher seulement les bouteilles sans prix</span></label>
     <div class="pricelist">${rows.map(({ b }) => {
         var _a;
         return `<div class="prow2" data-has="${b.estimated_value ? 1 : 0}"><span class="grow"><b>${esc(b.name)}</b> ${b.vintage ? `<span class="muted">${b.vintage}</span>` : ""}<br><small>${esc([b.producer, b.price_updated_at && "prix du " + new Date(b.price_updated_at).toLocaleDateString("fr-FR")].filter(Boolean).join(" \xB7 "))}</small></span>
-      <a class="iconbtn" href="${esc(searchUrl(b))}" target="_blank" rel="noopener" title="Chercher le prix">\u{1F50E}</a>${b.vivino_url ? `<a class="iconbtn" href="${esc(b.vivino_url)}" target="_blank" rel="noopener" title="Page Vivino">\u{1F347}</a>` : ""}
+      <a class="iconbtn" href="${esc(searchUrl(b))}" target="_blank" rel="noopener" title="Chercher le prix">Prix</a>${b.vivino_url ? `<a class="iconbtn" href="${esc(b.vivino_url)}" target="_blank" rel="noopener" title="Page Vivino">Vivino</a>` : ""}
       <input type="number" min="0" step="0.5" inputmode="decimal" data-k="${esc(priceKey(b))}" value="${(_a = b.estimated_value) != null ? _a : ""}" placeholder="\u2014" aria-label="Prix"><span>\u20AC</span></div>`;
       }).join("")}</div>
     <div class="formactions"><button class="btn ghost" data-close>Annuler</button><span class="grow"></span><button class="btn primary" id="savePrices">Enregistrer les prix</button></div></div>`, {
@@ -1498,6 +1980,7 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
         }
       };
       $("#priceBtn", root).onclick = priceSheet;
+      $("#scanBtn", root).onclick = () => editBottle({}, { location_kind: view === "placard" || view === "exterieur" ? view : "cave" }, { scan: true });
       $("#labelBtn", root).onclick = labelsSheet;
       $("#cocktailBtn", root).onclick = () => {
         const spirits = items().map(spiritOf).filter(Boolean);
@@ -1555,19 +2038,19 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
       const list = [...db.store.t.shopping_items].sort((a, b) => (a.shop || "").localeCompare(b.shop || "") || a.name.localeCompare(b.name, "fr"));
       const shops = [...new Set(list.map((i) => i.shop || "Supermarch\xE9"))];
       const checked = list.filter((i) => i.checked).length;
-      return `<div class="card glass"><div class="sectionhead"><h3 class="script">Liste de courses</h3><span><button class="btn small" id="reshop">\u2728 Ranger la liste (fusion, sans sel/poivre)</button> ${checked ? `<button class="btn small" id="clearChecked">Retirer les ${checked} coch\xE9s</button>` : ""}</span></div>
+      return `<div class="card glass"><div class="sectionhead"><h3 class="script">Liste de courses</h3><span><button class="btn small" id="reshop">Ranger la liste (fusion, sans sel/poivre)</button> ${checked ? `<button class="btn small" id="clearChecked">Retirer les ${checked} coch\xE9s</button>` : ""}</span></div>
     <form id="shopForm" class="inlineform"><input name="name" placeholder="Ajouter un article\u2026" required><select name="shop"><option>March\xE9</option><option selected>Supermarch\xE9</option></select><button class="btn primary">Ajouter</button></form>
-    ${shops.map((s) => `<h4>${s === "March\xE9" ? "\u{1F955}" : "\u{1F6D2}"} ${esc(s)}</h4>${list.filter((i) => (i.shop || "Supermarch\xE9") === s).map((i) => `<div class="shopitem ${i.checked ? "done" : ""}"><button class="tick" data-check="${i.id}" aria-label="Cocher">${i.checked ? "\u2713" : ""}</button><span class="grow">${esc(itemLabel(i))}${i.recipe_title ? `<small> \xB7 ${esc(i.recipe_title)}</small>` : ""}</span><button class="x" data-rm="${i.id}" aria-label="Supprimer">\xD7</button></div>`).join("")}`).join("") || '<div class="empty">La liste est vide.</div>'}</div>`;
+    ${shops.map((s) => `<h4>${s === "March\xE9" ? "" : ""} ${esc(s)}</h4>${list.filter((i) => (i.shop || "Supermarch\xE9") === s).map((i) => `<div class="shopitem ${i.checked ? "done" : ""}"><button class="tick" data-check="${i.id}" aria-label="Cocher">${i.checked ? "\u2713" : ""}</button><span class="grow">${esc(itemLabel(i))}${i.recipe_title ? `<small> \xB7 ${esc(i.recipe_title)}</small>` : ""}</span><button class="x" data-rm="${i.id}" aria-label="Supprimer">\xD7</button></div>`).join("")}`).join("") || '<div class="empty">La liste est vide.</div>'}</div>`;
     }
     function html() {
       const days = weekDays(weekStart);
       const empty = !days.some((d) => planAt(ymd(d), "soir"));
-      const banner = today.getDay() === 5 && ymd(weekStart) === ymd(weekStartSaturday(addDays(today, 1))) && empty ? `<div class="card glass accent"><b>C\u2019est vendredi !</b> On pr\xE9pare les menus de la semaine qui commence demain ? <button class="btn primary" data-propose>\u2728 Proposer les menus</button></div>` : "";
+      const banner = today.getDay() === 5 && ymd(weekStart) === ymd(weekStartSaturday(addDays(today, 1))) && empty ? `<div class="card glass accent"><b>C\u2019est vendredi !</b> On pr\xE9pare les menus de la semaine qui commence demain ? <button class="btn primary" data-propose>Proposer les menus</button></div>` : "";
       return `${banner}<div class="bar"><div class="seg"><button id="wprev" aria-label="Semaine pr\xE9c\xE9dente">\u2039</button><button id="wnow">Cette semaine</button><button id="wnext" aria-label="Semaine suivante">\u203A</button></div>
     <b class="weeklabel">${fmtShort(weekStart)} \u2192 ${fmtShort(addDays(weekStart, 6))}</b><span class="grow"></span>
-    <button class="btn" id="weekShop">\u{1F6D2} Courses de la semaine</button><button class="btn primary" data-propose>\u2728 Proposer les menus</button></div>
+    <button class="btn" id="weekShop">Courses de la semaine</button><button class="btn primary" data-propose>Proposer les menus</button></div>
   <div class="week">${days.map((d) => `<div class="daycard glass ${ymd(d) === ymd(today) ? "today" : ""}"><h4>${esc(fmtLong(d))}</h4>${typesOf(d).map((t) => mealCell(d, t)).join("")}</div>`).join("")}</div>
-  <p class="muted small">\u{1F955} De saison en ${MONTHS[seasonMonth() - 1]} : ${esc(seasonalNames(seasonMonth()).join(", "))}.</p>
+  <p class="muted small">De saison en ${MONTHS[seasonMonth() - 1]} : ${esc(seasonalNames(seasonMonth()).join(", "))}.</p>
   <p class="muted small">Chaque d\xEEner est pr\xE9vu pour 3 personnes. Novembre \xE0 mars : soupe le dimanche et le lundi soir. Les propositions utilisent d\u2019abord votre carnet, en \xE9vitant ce que vous avez cuisin\xE9 ces trois derni\xE8res semaines.</p>
   ${shoppingHTML()}`;
     }
@@ -1660,7 +2143,7 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
       var _a;
       return `<div class="prow"><span class="pday">${esc(fmtShort(parseYmd(e.date)))}<small>${TYPE_LABEL[e.type]}</small></span>
   ${e.photo_url ? `<img src="${esc(e.photo_url)}" alt="">` : '<span class="thumb"></span>'}
-  <span class="grow"><b>${esc(e.title || "\u2014 rien de trouv\xE9 \u2014")}</b>${e.web ? `<small><span class="chip">${e.web.source === "Marmiton" ? "Marmiton" : "id\xE9e internet"}</span>${ratingHTML(e.web)}</small>` : e.recipe_id ? `<small>de votre carnet${((_a = e.seasonal) == null ? void 0 : _a.length) ? ` \xB7 \u{1F33F} de saison : ${esc(e.seasonal.slice(0, 3).join(", "))}` : ""}</small>` : ""}</span>
+  <span class="grow"><b>${esc(e.title || "\u2014 rien de trouv\xE9 \u2014")}</b>${e.web ? `<small><span class="chip">${e.web.source === "Marmiton" ? "Marmiton" : "id\xE9e internet"}</span>${ratingHTML(e.web)}</small>` : e.recipe_id ? `<small>de votre carnet${((_a = e.seasonal) == null ? void 0 : _a.length) ? ` \xB7 de saison : ${esc(e.seasonal.slice(0, 3).join(", "))}` : ""}</small>` : ""}</span>
   <button class="iconbtn" data-reroll="${i}" aria-label="Autre proposition">\u21BB</button><button class="iconbtn" data-drop="${i}" aria-label="Retirer">\xD7</button></div>`;
     };
     async function showProposal() {
@@ -1789,28 +2272,278 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
     }
     return { html, bind };
   })();
+  __m.news = (() => {
+    const { $, $$, esc, toast, ymd, addDays } = __m.util;
+    const API = "https://api.rss2json.com/v1/api.json?count=12&rss_url=";
+    const FEEDS = {
+      "\xC0 la une": ["https://www.francetvinfo.fr/titres.rss", "https://www.lemonde.fr/rss/une.xml"],
+      "Politique": ["https://www.francetvinfo.fr/politique.rss"],
+      "Monde": ["https://www.francetvinfo.fr/monde.rss"],
+      "\xC9conomie": ["https://www.francetvinfo.fr/economie.rss"],
+      "Sport": ["https://www.francetvinfo.fr/sports.rss"],
+      "Culture": ["https://www.francetvinfo.fr/culture.rss"]
+    };
+    const KEY = "family-news";
+    let sec = "\xC0 la une", loading = false, error = "", mem = null, reading = -1, paused = false, queue = [];
+    const slotOf = (d) => {
+      const h = d.getHours();
+      return h >= 18 ? ymd(d) + "-18" : h >= 6 ? ymd(d) + "-06" : ymd(addDays(d, -1)) + "-18";
+    };
+    const read = () => {
+      try {
+        return JSON.parse(localStorage.getItem(KEY)) || mem;
+      } catch (e) {
+        return mem;
+      }
+    };
+    const write = (v) => {
+      mem = v;
+      try {
+        localStorage.setItem(KEY, JSON.stringify(v));
+      } catch (e) {
+      }
+    };
+    const dec = (s) => {
+      const t = document.createElement("textarea");
+      t.innerHTML = s;
+      return t.value;
+    };
+    const clean = (s) => dec(String(s || "").replace(/<[^>]*>/g, " ")).replace(/\s+/g, " ").replace(/\s*(Lire la suite|Lire l’article|Read more|\[…\]|\.\.\.)\s*$/i, "").trim();
+    const blurb = (desc, title) => {
+      let t = clean(desc);
+      if (!t || t === title) return "";
+      if (t.length > 240) {
+        const cut = t.slice(0, 240), i = Math.max(cut.lastIndexOf(". "), cut.lastIndexOf(" "));
+        t = cut.slice(0, i > 120 ? i : 240).replace(/[,;:]$/, "") + (cut.lastIndexOf(". ") > 120 ? "." : "\u2026");
+      }
+      return t;
+    };
+    const timeout = (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error("d\xE9lai d\xE9pass\xE9")), ms))]);
+    async function getFeed(url) {
+      const r = await timeout(fetch(API + encodeURIComponent(url)), 12e3);
+      if (!r.ok) throw new Error("service de flux " + r.status);
+      const j = await r.json();
+      if (j.status && j.status !== "ok") throw new Error(j.message || "flux indisponible");
+      const src = /lemonde/.test(url) ? "Le Monde" : "France Info";
+      return (j.items || []).map((i) => ({ title: clean(i.title), text: blurb(i.description || i.content, clean(i.title)), link: i.link, date: i.pubDate, src, img: i.thumbnail || i.enclosure && i.enclosure.link || "" })).filter((i) => i.title);
+    }
+    async function build() {
+      const out = {};
+      let ok = 0, last = "";
+      await Promise.all(Object.entries(FEEDS).map(async ([name, urls]) => {
+        const lists = (await Promise.all(urls.map((u) => getFeed(u).catch((e) => {
+          last = e.message;
+          return [];
+        })))).filter((l) => l.length);
+        const seen = {}, items = [];
+        for (let k = 0; items.length < (name === "\xC0 la une" ? 8 : 5) && lists.some((l) => k < l.length); k++) lists.forEach((l) => {
+          const i = l[k];
+          if (i && !seen[i.title.toLowerCase()] && items.length < (name === "\xC0 la une" ? 8 : 5)) {
+            seen[i.title.toLowerCase()] = 1;
+            items.push(i);
+          }
+        });
+        if (items.length) {
+          out[name] = items;
+          ok++;
+        }
+      }));
+      if (!ok) throw new Error(last || "aucun flux disponible");
+      return out;
+    }
+    async function refresh(force) {
+      const now = /* @__PURE__ */ new Date(), c = read();
+      if (loading || !force && c && c.slot === slotOf(now)) return false;
+      loading = true;
+      error = "";
+      try {
+        write({ slot: slotOf(now), at: now.toISOString(), sections: await build() });
+        return true;
+      } catch (e) {
+        error = e.message || "erreur";
+        return false;
+      } finally {
+        loading = false;
+      }
+    }
+    const tts = () => typeof window !== "undefined" && window.speechSynthesis && window.SpeechSynthesisUtterance ? window.speechSynthesis : null;
+    function stopReading() {
+      queue = [];
+      reading = -1;
+      paused = false;
+      const s = tts();
+      if (s) try {
+        s.cancel();
+      } catch (e) {
+      }
+    }
+    function frVoice() {
+      const s = tts();
+      const v = s && s.getVoices && s.getVoices() || [];
+      return v.find((x) => /^fr[-_]FR/i.test(x.lang) && /(thomas|amelie|audrey|marie|google)/i.test(x.name)) || v.find((x) => /^fr[-_]FR/i.test(x.lang)) || v.find((x) => /^fr/i.test(x.lang)) || null;
+    }
+    function speakQueue(parts, onStep) {
+      const s = tts();
+      if (!s) return toast("La lecture vocale n\u2019est pas disponible sur cet appareil", "err");
+      stopReading();
+      queue = parts.slice();
+      const next = () => {
+        if (!queue.length) {
+          reading = -1;
+          onStep(-1);
+          return;
+        }
+        const p = queue.shift();
+        reading = p.idx;
+        onStep(p.idx);
+        const u = new window.SpeechSynthesisUtterance(p.text);
+        u.lang = "fr-FR";
+        u.rate = 1;
+        const v = frVoice();
+        if (v) u.voice = v;
+        u.onend = next;
+        u.onerror = () => {
+          reading = -1;
+          onStep(-1);
+        };
+        s.speak(u);
+      };
+      next();
+    }
+    const longDate = (d) => {
+      const t = d.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
+      return t;
+    };
+    function scriptFor(c) {
+      const parts = [], when = new Date(c.at);
+      parts.push({ idx: -1, text: `Voici l\u2019actualit\xE9 du ${longDate(when)}, \xE9dition de ${when.getHours() >= 18 || when.getHours() < 6 ? "dix-huit" : "six"} heures.` });
+      (c.sections["\xC0 la une"] || []).slice(0, 6).forEach((i, k) => parts.push({ idx: k, text: `${i.title}. ${i.text || ""}` }));
+      Object.entries(c.sections).filter(([k]) => k !== "\xC0 la une").forEach(([k, items]) => {
+        parts.push({ idx: -1, text: k + "." });
+        items.slice(0, 3).forEach((i) => parts.push({ idx: -1, text: i.title + "." }));
+      });
+      parts.push({ idx: -1, text: "C\u2019\xE9tait l\u2019essentiel de l\u2019actualit\xE9." });
+      return parts;
+    }
+    const ago = (iso) => {
+      const m = Math.round((Date.now() - new Date(iso)) / 6e4);
+      return m < 1 ? "\xE0 l\u2019instant" : m < 60 ? `il y a ${m} min` : m < 1440 ? `il y a ${Math.round(m / 60)} h` : new Date(iso).toLocaleDateString("fr-FR");
+    };
+    const news = {
+      html() {
+        const c = read();
+        const head = `<div class="bar newsbar"><div class="grow"><b>${c ? `\xC9dition de ${new Date(c.at).getHours() >= 18 || new Date(c.at).getHours() < 6 ? "18 h" : "6 h"}` : "Actualit\xE9s"}</b><br><small class="muted">${loading ? "Mise \xE0 jour\u2026" : c ? `Mis \xE0 jour ${esc(ago(c.at))} \xB7 prochaine \xE9dition \xE0 ${(/* @__PURE__ */ new Date()).getHours() >= 6 && (/* @__PURE__ */ new Date()).getHours() < 18 ? "18 h" : "6 h"}` : "Pas encore de r\xE9sum\xE9"}</small></div>
+      <button class="btn primary" id="nRead">${queue.length || reading >= 0 ? "Arr\xEAter" : "\xC9couter le r\xE9sum\xE9"}</button><button class="btn" id="nPause" ${queue.length ? "" : "hidden"}>${paused ? "Reprendre" : "Pause"}</button><button class="btn" id="nRefresh">\u21BB Actualiser</button></div>`;
+        const warn = error ? `<div class="card glass warn">Impossible de mettre \xE0 jour : ${esc(error)}. ${c ? "Le dernier r\xE9sum\xE9 reste affich\xE9." : "R\xE9essayez dans un instant."}</div>` : "";
+        if (!c) return head + warn + `<div class="empty">${loading ? "Chargement des titres du jour\u2026" : "Appuyez sur \xAB Actualiser \xBB pour charger l\u2019actualit\xE9."}</div>`;
+        const first = c.sections["\xC0 la une"] || [];
+        const brief = `<div class="card glass newsbrief"><h3 class="script">En bref</h3><ol>${first.slice(0, 5).map((i) => `<li>${esc(i.title)}</li>`).join("")}</ol></div>`;
+        const secs = Object.keys(c.sections);
+        const items = c.sections[sec] || [];
+        return head + warn + brief + `<div class="chips">${secs.map((k) => `<button data-sec="${esc(k)}" class="${k === sec ? "on" : ""}">${esc(k)}</button>`).join("")}</div>
+      <div class="newslist">${items.map((i, k) => `<article class="card glass news ${sec === "\xC0 la une" && k === reading ? "reading" : ""}" data-k="${k}">${i.img ? `<img src="${esc(i.img)}" alt="" loading="lazy" onerror="this.remove()">` : ""}<div class="grow"><b>${esc(i.title)}</b>${i.text ? `<p>${esc(i.text)}</p>` : ""}<small class="muted">${esc(i.src)}${i.date ? " \xB7 " + esc(new Date(String(i.date).replace(" ", "T")).toLocaleString("fr-FR", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })) : ""} \xB7 <a href="${esc(i.link)}" target="_blank" rel="noopener">Lire \u2197</a></small></div><button class="iconbtn" data-say="${k}" aria-label="Lire cet article"></button></article>`).join("")}</div>
+      <p class="muted small">R\xE9sum\xE9 automatique des titres et chap\xF4s publi\xE9s par France Info et Le Monde. Mis \xE0 jour \xE0 chaque \xE9dition (6 h et 18 h) \xE0 l\u2019ouverture de la page.</p>`;
+      },
+      bind(root, rerender) {
+        const redraw = () => {
+          const y = window.pageYOffset;
+          rerender();
+          window.scrollTo(0, y);
+        };
+        const c = read();
+        if (!loading && (!c || c.slot !== slotOf(/* @__PURE__ */ new Date()))) {
+          const p = refresh(false);
+          redraw();
+          p.then(redraw);
+        }
+        $("#nRefresh", root).onclick = () => {
+          stopReading();
+          const p = refresh(true);
+          redraw();
+          p.then((ok) => {
+            redraw();
+            if (ok) toast("Actualit\xE9 mise \xE0 jour");
+          });
+        };
+        $("#nRead", root).onclick = () => {
+          if (queue.length || reading >= 0) {
+            stopReading();
+            return redraw();
+          }
+          const cur = read();
+          if (!cur) return toast("Rien \xE0 lire pour le moment", "err");
+          speakQueue(scriptFor(cur), (idx) => {
+            $$("#content .news.reading").forEach((e) => e.classList.remove("reading"));
+            const el = idx >= 0 && sec === "\xC0 la une" ? $(`#content .news[data-k="${idx}"]`) : null;
+            if (el) el.classList.add("reading");
+            if (idx === -1 && !queue.length) redraw();
+          });
+          redraw();
+        };
+        const pz = $("#nPause", root);
+        pz.onclick = () => {
+          const s = tts();
+          if (!s) return;
+          if (paused) {
+            s.resume();
+            paused = false;
+          } else {
+            s.pause();
+            paused = true;
+          }
+          pz.textContent = paused ? "Reprendre" : "Pause";
+        };
+        $$("[data-sec]", root).forEach((b) => b.onclick = () => {
+          sec = b.dataset.sec;
+          redraw();
+        });
+        $$("[data-say]", root).forEach((b) => b.onclick = () => {
+          const i = (read().sections[sec] || [])[+b.dataset.say];
+          if (i) speakQueue([{ idx: -1, text: `${i.title}. ${i.text || ""}` }], () => {
+          });
+        });
+      }
+    };
+    return { slotOf, refresh, stopReading, news };
+  })();
   __m.misc = (() => {
     const { $, $$, esc, toast, formDialog, openModal, closeModal, ymd, parseYmd, addDays, fmtLong, fmtTime, toLocalInput, PEOPLE } = __m.util;
     const db = __m.db;
     const t = (k) => db.store.t[k];
     const pIndex = (o) => Math.max(0, PEOPLE.indexOf(o));
+    const ART = {
+      courses: '<polygon points="40,92 150,92 160,200 30,200" fill="#d4e9dc"/><polygon points="150,92 176,102 186,200 160,200" fill="#a6c9b4"/><polygon points="40,92 150,92 152,108 38,108" fill="#e4f1e8"/><path d="M62 94C62 60 130 60 130 94" fill="none" stroke="#98bda7" stroke-width="7" stroke-linecap="round"/><polygon points="56,94 62,22 76,24 76,94" fill="#8aa68c"/><polygon points="76,94 82,30 98,34 92,94" fill="#a8c0a1"/><polygon points="56,94 59,68 76,72 76,94" fill="#f3f0e1"/><polygon points="76,94 78,72 92,74 92,94" fill="#e4e8d6"/><polygon points="98,94 104,40 124,34 130,94" fill="#ecdeb9"/><polygon points="104,40 124,34 128,56 106,62" fill="#f5ebcf"/><polygon points="132,94 136,58 162,54 164,94" fill="#f1f6ef"/><polygon points="136,58 162,54 152,44 140,46" fill="#d8e8da"/>',
+      agenda: '<polygon points="30,60 190,60 190,200 30,200" fill="#fbf0d6"/><polygon points="30,60 190,60 190,96 30,96" fill="#f2b878"/><polygon points="30,96 190,96 190,104 30,104" fill="#e19f5c"/><rect x="58" y="34" width="16" height="44" rx="8" fill="#c9694d"/><rect x="146" y="34" width="16" height="44" rx="8" fill="#c9694d"/><g fill="#e9d6ab"><rect x="48" y="122" width="22" height="18" rx="4"/><rect x="88" y="122" width="22" height="18" rx="4"/><rect x="128" y="122" width="22" height="18" rx="4"/><rect x="48" y="156" width="22" height="18" rx="4"/><rect x="88" y="156" width="22" height="18" rx="4"/></g><rect x="128" y="156" width="22" height="18" rx="4" fill="#e59a6d"/>',
+      menu: '<circle cx="118" cy="128" r="76" fill="#f2a493"/><circle cx="118" cy="128" r="60" fill="#f7b9aa"/><polygon points="80,110 100,88 128,92 150,106 156,134 138,156 108,160 86,146" fill="#e7c876"/><polygon points="100,88 128,92 118,110" fill="#cfb865"/><polygon points="138,156 156,134 160,150 146,166" fill="#a9bd9c"/><polygon points="86,146 108,160 96,170 80,160" fill="#a9bd9c"/><polygon points="40,70 48,70 50,110 38,110" fill="#fbf3e6"/><polygon points="38,110 50,110 46,200 42,200" fill="#fbf3e6"/><polygon points="62,70 74,200 66,200 56,114 56,70" fill="#fbf3e6"/>',
+      recettes: '<polygon points="46,92 176,92 168,196 54,196" fill="#e3c25c"/><polygon points="120,92 176,92 168,196 130,196" fill="#cfab43"/><polygon points="40,70 182,70 176,92 46,92" fill="#f1d676"/><polygon points="40,70 182,70 170,58 52,58" fill="#f7e49a"/><polygon points="98,58 124,58 118,40 104,40" fill="#fbf1cf"/><polygon points="30,104 46,100 46,120 30,124" fill="#fbf3e2"/><polygon points="182,96 198,92 198,112 182,116" fill="#fbf3e2"/><polygon points="150,60 196,14 204,24 164,70" fill="#b87642"/>',
+      cave: '<polygon points="20,40 190,40 190,200 20,200" fill="#ea8b7e"/><polygon points="34,54 176,54 176,110 34,110" fill="#c25a4f"/><polygon points="34,124 176,124 176,200 34,200" fill="#c25a4f"/><polygon points="20,112 190,112 190,122 20,122" fill="#f3b3a8"/><polygon points="10,40 30,28 190,28 190,40" fill="#f3b3a8"/><polygon points="40,70 112,70 130,76 130,94 112,98 40,98" fill="#3e6d55"/><polygon points="40,70 52,70 52,98 40,98" fill="#f0e4c8"/><polygon points="78,70 104,70 104,98 78,98" fill="#e9e3cf"/><polygon points="44,146 116,146 134,152 134,172 116,176 44,176" fill="#3e6d55"/><polygon points="44,146 56,146 56,176 44,176" fill="#f0e4c8"/><polygon points="82,146 108,146 108,176 82,176" fill="#e9e3cf"/>',
+      news: '<polygon points="28,40 150,40 150,200 28,200" fill="#f7f3e8"/><polygon points="150,70 190,70 190,200 150,200" fill="#e8e0cc"/><rect x="44" y="56" width="90" height="16" rx="3" fill="#2f5e86"/><rect x="44" y="86" width="42" height="36" rx="3" fill="#9cc3e2"/><g fill="#b9c7d3"><rect x="94" y="86" width="40" height="6" rx="3"/><rect x="94" y="100" width="40" height="6" rx="3"/><rect x="94" y="114" width="40" height="6" rx="3"/><rect x="44" y="134" width="90" height="6" rx="3"/><rect x="44" y="148" width="90" height="6" rx="3"/><rect x="44" y="162" width="60" height="6" rx="3"/></g><circle cx="150" cy="150" r="26" fill="#e9a24f"/><polygon points="142,138 142,162 164,150" fill="#fbf0d6"/>',
+      playlists: '<circle cx="108" cy="116" r="88" fill="#3d4272"/><circle cx="108" cy="116" r="70" fill="none" stroke="#5a5f9a" stroke-width="3"/><circle cx="108" cy="116" r="54" fill="none" stroke="#5a5f9a" stroke-width="3"/><circle cx="108" cy="116" r="36" fill="#e9cf7b"/><circle cx="108" cy="116" r="7" fill="#3d4272"/><polygon points="108,116 196,92 196,66" fill="#4d5290" opacity=".55"/><path d="M150 40v46a14 14 0 1 1-8-12.5V34l40-10v40" fill="none" stroke="#f6f0dc" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>',
+      maison: '<polygon points="30,98 150,98 150,200 30,200" fill="#f4ecd9"/><polygon points="150,98 190,112 190,200 150,200" fill="#dccfb2"/><polygon points="20,98 90,36 160,98" fill="#2d5b4e"/><polygon points="90,36 160,98 190,112 110,40" fill="#234a3f"/><polygon points="72,36 108,36 108,10 94,10" fill="#2d5b4e" opacity="0"/><rect x="48" y="124" width="26" height="34" rx="3" fill="#e8c76c"/><rect x="104" y="124" width="26" height="34" rx="3" fill="#e8c76c"/><polygon points="74,200 74,158 100,158 100,200" fill="#2d5b4e"/><polygon points="76,62 102,62 102,86 76,86" fill="#e8c76c"/>'
+    };
+    const TILES = [
+      ["menus", "Courses", "courses", "#c6edd8", "#8fc3a6"],
+      ["agenda", "Calendrier", "agenda", "#fcf0c8", "#f6cd8b"],
+      ["menus", "Menu", "menu", "#f3b3a4", "#e5806f"],
+      ["recipes", "Recettes", "recettes", "#faf0b0", "#f4e08e"],
+      ["cellar", "Cave \xE0 vin", "cave", "#f1a7a0", "#ee7f72"],
+      ["music", "Playlists", "playlists", "#e1dcf6", "#aeb0ee"],
+      ["news", "Actualit\xE9", "news", "#d6e9f8", "#9ec8e8"],
+      ["homebook", "Maison", "maison", "#cfe8e0", "#8fc5b5"]
+    ];
     const home = {
       html(user) {
         const now = /* @__PURE__ */ new Date(), key = ymd(now);
-        const h = now.getHours(), hello = h < 5 || h >= 18 ? "Bonsoir" : "Bonjour";
         const meals = t("meal_plans").filter((p) => p.meal_date === key).sort((a, b) => (a.meal_type === "midi" ? -1 : 1) - (b.meal_type === "midi" ? -1 : 1));
         const events = t("family_events").filter((e) => e.starts_at && new Date(e.starts_at) >= new Date(now.getFullYear(), now.getMonth(), now.getDate())).sort((a, b) => a.starts_at.localeCompare(b.starts_at)).slice(0, 5);
         const todo = t("shopping_items").filter((i) => !i.checked).length;
-        const bottles = t("cellar_items").reduce((n, b) => n + (b.quantity || 1), 0);
-        const tile = (go, icon, title, desc) => `<button class="tile glass" data-go="${go}"><span class="ico">${icon}</span><b>${title}</b><small>${desc}</small></button>`;
-        return `<div class="hero glass"><p class="script big">${hello}${db.store.displayName ? " " + esc(db.store.displayName[0].toUpperCase() + db.store.displayName.slice(1)) : ""},</p><p>le carnet de bord d\u2019Emilie, Alexandre, Hugo & Gaspard.</p>
-      <div class="bar"><button class="btn primary" data-go="menus">\u2728 Pr\xE9parer les menus de la semaine</button><button class="btn" data-go="recipes">Trouver une id\xE9e de recette</button></div></div>
-    <div class="grid2">
-     <div class="card glass"><h3 class="script">Aujourd\u2019hui \xE0 table</h3>${meals.map((m) => `<div class="row"><span class="chip">${m.meal_type === "midi" ? "D\xE9jeuner" : "D\xEEner"}</span><b class="grow">${esc(m.title || "")}</b></div>`).join("") || '<p class="muted">Rien de planifi\xE9 aujourd\u2019hui.</p>'}</div>
+        const badge = { Courses: todo, Calendrier: events.length };
+        const tile = ([go, title, art, c1, c2]) => `<button class="mtile" data-go="${go}" style="background:linear-gradient(155deg,${c1},${c2})"><b>${title}</b>${badge[title] ? `<span class="badge">${badge[title]}</span>` : ""}<svg class="art" viewBox="0 0 200 200" aria-hidden="true">${ART[art]}</svg></button>`;
+        return `<div class="mtiles">${TILES.map(tile).join("")}</div>
+    <div class="grid2 homecards">
+     <div class="card glass"><h3 class="script">Aujourd\u2019hui \xE0 table</h3>${meals.map((m) => `<div class="row"><span class="chip">${m.meal_type === "midi" ? "D\xE9jeuner" : "D\xEEner"}</span><b class="grow">${esc(m.title || "")}</b></div>`).join("") || '<p class="muted">Rien de planifi\xE9 aujourd\u2019hui.</p>'}<div class="bar" style="margin:12px 0 0"><button class="btn primary small" data-go="menus">Pr\xE9parer les menus de la semaine</button></div></div>
      <div class="card glass"><h3 class="script">\xC0 venir</h3>${events.map((e) => `<div class="row"><span class="dot p${pIndex(e.owner)}"></span><span class="grow"><b>${esc(e.title)}</b><br><small>${esc(fmtLong(new Date(e.starts_at)))} \xB7 ${esc(fmtTime(e.starts_at))}</small></span></div>`).join("") || '<p class="muted">Aucun rendez-vous \xE0 venir.</p>'}</div>
-    </div>
-    <div class="stats"><div class="stat glass"><b>${t("recipes").length}</b><span>recettes</span></div><div class="stat glass"><b>${bottles}</b><span>bouteilles</span></div><div class="stat glass"><b>${todo}</b><span>courses \xE0 faire</span></div></div>
-    <div class="tiles">${tile("cellar", "\u{1F377}", "Cave & spiritueux", "Cave \xE0 vin, placards, ext\xE9rieur")}${tile("recipes", "\u{1F4D6}", "Recettes", "Carnet, id\xE9es, cocktails")}${tile("menus", "\u{1F37D}", "Menus & courses", "Du samedi au vendredi")}${tile("agenda", "\u{1F5D3}", "Agenda", "Les rendez-vous de tous")}${tile("music", "\u{1F3B5}", "Playlists", "Spotify en famille")}${tile("homebook", "\u{1F3E1}", "Maison", "Notes & infos utiles")}</div>`;
+    </div>`;
       },
       bind(root, _rerender, go) {
         $$("[data-go]", root).forEach((b) => b.onclick = () => go(b.dataset.go));
@@ -1891,7 +2624,7 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
         return `<div class="bar"><span class="muted">\xAB \xC9couter \xBB lance la playlist ici ; \xAB Spotify \xBB l\u2019ouvre dans l\u2019appli. Pour une playlist priv\xE9e, connectez-vous \xE0 Spotify dans ce navigateur.</span><span class="grow"></span><button class="btn primary" id="addPl">\uFF0B Playlist</button></div>
       <div class="plgrid">${t("playlists").map((p) => {
           const i = spotifyInfo(p.spotify_url);
-          return `<div class="card glass pl"><span class="ico">\u{1F3B5}</span><div class="grow"><b>${esc(p.title)}</b><br><small>${esc(p.owner || "Famille")}${i ? "" : " \xB7 lien non reconnu"}</small></div>${i && i.embed ? `<button class="btn primary small" data-play="${p.id}">\u25B6 \xC9couter</button>` : ""}<a class="btn small" href="${esc(i ? i.web : p.spotify_url)}">Spotify \u2197</a><button class="iconbtn" data-edit="${p.id}" aria-label="Modifier">\u22EF</button></div>`;
+          return `<div class="card glass pl"><span class="ico"></span><div class="grow"><b>${esc(p.title)}</b><br><small>${esc(p.owner || "Famille")}${i ? "" : " \xB7 lien non reconnu"}</small></div>${i && i.embed ? `<button class="btn primary small" data-play="${p.id}">\xC9couter</button>` : ""}<a class="btn small" href="${esc(i ? i.web : p.spotify_url)}">Spotify \u2197</a><button class="iconbtn" data-edit="${p.id}" aria-label="Modifier">\u22EF</button></div>`;
         }).join("") || '<div class="empty">Ajoutez le lien de vos playlists Spotify.</div>'}</div>`;
       },
       bind(root) {
@@ -1950,20 +2683,22 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
     return { home, agenda, spotifyInfo, music, homebook };
   })();
   __m.app = (() => {
-    const { $, $$, esc, toast, closeModal } = __m.util;
+    const { $, $$, esc, toast, openModal, closeModal } = __m.util;
     const db = __m.db;
     const cellar = __m.cellar;
     const recipes = __m.recipes;
     const menus = __m.menus;
+    const { news, stopReading } = __m.news;
     const { home, agenda, music, homebook } = __m.misc;
     const PAGES = {
-      home: { icon: "\u2302", label: "Accueil", title: "Bonjour \xE0 tous", mod: home, tables: ["meal_plans", "family_events", "shopping_items", "recipes", "cellar_items"] },
-      cellar: { icon: "\u{1F377}", label: "Cave & spiritueux", title: "Notre cave", mod: cellar, tables: ["cellar_items"] },
-      recipes: { icon: "\u{1F4D6}", label: "Recettes", title: "Le carnet de recettes", mod: recipes, tables: ["recipes"] },
-      menus: { icon: "\u{1F37D}", label: "Menus & courses", title: "\xC0 table !", mod: menus, tables: ["meal_plans", "shopping_items", "recipes"] },
-      agenda: { icon: "\u{1F5D3}", label: "Agenda", title: "L\u2019agenda familial", mod: agenda, tables: ["family_events"] },
-      music: { icon: "\u{1F3B5}", label: "Playlists", title: "Nos playlists", mod: music, tables: ["playlists"] },
-      homebook: { icon: "\u{1F3E1}", label: "Maison", title: "La maison", mod: homebook, tables: ["family_notes"] }
+      home: { icon: "", label: "Accueil", title: "Bonjour \xE0 tous", mod: home, tables: ["meal_plans", "family_events", "shopping_items", "recipes", "cellar_items"] },
+      cellar: { icon: "", label: "Cave & spiritueux", title: "Notre cave", mod: cellar, tables: ["cellar_items"] },
+      recipes: { icon: "", label: "Recettes", title: "Le carnet de recettes", mod: recipes, tables: ["recipes"] },
+      menus: { icon: "", label: "Menus & courses", title: "\xC0 table !", mod: menus, tables: ["meal_plans", "shopping_items", "recipes"] },
+      news: { icon: "", label: "Actualit\xE9s", title: "L\u2019actualit\xE9 du jour", mod: news, tables: [] },
+      agenda: { icon: "", label: "Agenda", title: "L\u2019agenda familial", mod: agenda, tables: ["family_events"] },
+      music: { icon: "", label: "Playlists", title: "Nos playlists", mod: music, tables: ["playlists"] },
+      homebook: { icon: "", label: "Maison", title: "La maison", mod: homebook, tables: ["family_notes"] }
     };
     let page = "home";
     try {
@@ -1972,6 +2707,8 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
     } catch (e) {
     }
     function go(p) {
+      $("#nav").classList.add("hidden");
+      if (p !== page) stopReading();
       page = p;
       try {
         localStorage.setItem("family-page", p);
@@ -1983,7 +2720,15 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
     function render() {
       const P = PAGES[page], root = $("#content");
       $$("#nav button").forEach((b) => b.classList.toggle("active", b.dataset.page === page));
-      $("#heading").textContent = P.title;
+      if (page === "home") {
+        const d = (/* @__PURE__ */ new Date()).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
+        $("#heading").textContent = d.charAt(0).toUpperCase() + d.slice(1);
+        $("#subheading").textContent = "Emilie \xB7 Alexandre \xB7 Hugo \xB7 Gaspard";
+      } else {
+        $("#heading").textContent = P.title;
+        $("#subheading").textContent = "";
+      }
+      $("#floatnav").classList.toggle("onhome", page === "home");
       root.innerHTML = P.mod.html();
       P.mod.bind(root, render, go);
     }
@@ -2052,11 +2797,20 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
     }
     async function boot() {
       detectFlexGap();
-      $("#nav").innerHTML = Object.entries(PAGES).map(([k, p]) => `<button data-page="${k}"><span class="ico">${p.icon}</span><span>${p.label}</span></button>`).join("");
+      $("#nav").innerHTML = Object.entries(PAGES).map(([k, p]) => `<button data-page="${k}"><span>${p.label}</span></button>`).join("");
       $("#nav").onclick = (e) => {
         const b = e.target.closest("[data-page]");
         if (b) go(b.dataset.page);
       };
+      $("#menuBtn").onclick = (e) => {
+        e.stopPropagation();
+        $("#nav").classList.toggle("hidden");
+      };
+      document.addEventListener("click", (e) => {
+        if (!e.target.closest("#nav") && !e.target.closest("#menuBtn")) $("#nav").classList.add("hidden");
+      });
+      $("#homeBtn").onclick = $("#homeBtn2").onclick = () => go("home");
+      $("#familyPill").onclick = () => go("home");
       $("#dlg").addEventListener("click", (e) => {
         if (e.target.id === "dlg") closeModal();
       });
@@ -2070,13 +2824,18 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
         if (error) $("#loginMessage").textContent = /invalid login/i.test(error.message) ? "E-mail ou mot de passe incorrect." : error.message;
         else enter(data.user);
       };
-      $("#logoutBtn").onclick = async () => {
+      const logout = async () => {
+        closeModal();
         db.stopRealtime();
         await sb.auth.signOut();
         db.clearCache();
         db.store.user = null;
         showLogin();
       };
+      $("#userBtn").onclick = () => openModal(`<h2 class="script">Mon compte</h2><p class="muted">${esc(db.store.user && db.store.user.email || "")}</p><p><span id="syncBadge3" class="sync ${esc(db.store.sync === "live" ? "live" : db.store.sync === "connecting" ? "wait" : "off")}">${db.store.sync === "live" ? "\u25CF Synchronis\xE9 sur tous vos appareils" : db.store.sync === "connecting" ? "\u25CF Connexion\u2026" : "\u25CF Hors ligne"}</span></p><div class="formactions"><button class="btn ghost" data-close>Fermer</button><span class="grow"></span><button class="btn danger" id="logoutBtn">Se d\xE9connecter</button></div>`, { onMount: (r) => {
+        $("[data-close]", r).onclick = closeModal;
+        $("#logoutBtn", r).onclick = logout;
+      } });
       $("#loginMessage").textContent = "";
       const { data: { session } } = await sb.auth.getSession();
       if (session) enter(session.user);
