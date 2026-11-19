@@ -602,7 +602,7 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
     async function marmiton(q, type, exclude) {
       let fnErr = "";
       try {
-        const { data, error } = await Promise.race([db.store.sb.functions.invoke("marmiton", { body: { q, type, exclude } }), new Promise((_, rej) => setTimeout(() => rej(new Error("pas de r\xE9ponse en 25 s")), 25e3))]);
+        const { data, error } = await Promise.race([db.store.sb.functions.invoke(window.FN_MARMITON || "marmiton", { body: { q, type, exclude } }), new Promise((_, rej) => setTimeout(() => rej(new Error("pas de r\xE9ponse en 25 s")), 25e3))]);
         if (error) {
           let msg = error.message || "erreur";
           try {
@@ -1660,7 +1660,7 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
       let why = "";
       if (!fnMissing) {
         try {
-          const { data, error } = await timeout(db.store.sb.functions.invoke("wine-labels", { body: { bottles: [{ id: b.id, url: b.vivino_url || void 0, query: labelQuery(b) }] } }), 2e4, "fonction wine-labels");
+          const { data, error } = await timeout(db.store.sb.functions.invoke(window.FN_LABELS || "wine-labels", { body: { bottles: [{ id: b.id, url: b.vivino_url || void 0, query: labelQuery(b) }] } }), 2e4, "fonction wine-labels");
           if (error) throw error;
           const r = data.results[0];
           if (r.ok) return { url: await db.uploadPhoto(b64blob(r.data, r.mime), "bottles", r.mime) };
