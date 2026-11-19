@@ -2,3 +2,4 @@
 // Ne jamais mettre une clé secret ou service_role dans le navigateur.
 window.SUPABASE_URL = "https://kjzmkelewfarpymybxge.supabase.co";
 window.SUPABASE_ANON_KEY = "sb_publishable_PYtDGGML72Y-ljW8gyhlNQ_-_5TGzec";
+window.FN_MARMITON = "smart-endpoint";
