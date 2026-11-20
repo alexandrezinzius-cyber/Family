@@ -1148,7 +1148,38 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
       return t.replace(/\s+/g, " ").replace(/\s+([,.;])/g, "$1").replace(/\s*\.$/, "").trim();
     }
     const harmonizeIngredients = (text) => String(text || "").split(/\r?\n/).map((l) => l.trim() ? harmonizeLine(l) : "").filter((l, i, a) => l || i && a[i - 1]).join("\n").trim();
-    return { isSkipped, parseLine, parseLines, formatQty, itemLabel, addLines, addIngredients, tidyList, harmonizeLine, harmonizeIngredients };
+    const QTY0 = /^(\d+\s*[½¼¾⅓⅔]|\d+(?:[.,]\d+)?(?:\s*\/\s*\d+)?|[½¼¾⅓⅔])(\s*(?:à|-)\s*(\d+(?:[.,]\d+)?))?/;
+    const toNum = (t) => {
+      t = String(t).trim();
+      const fr = { "\xBD": 0.5, "\xBC": 0.25, "\xBE": 0.75, "\u2153": 1 / 3, "\u2154": 2 / 3 };
+      let m = t.match(/^(\d+)\s*([½¼¾⅓⅔])$/);
+      if (m) return +m[1] + fr[m[2]];
+      if (fr[t]) return fr[t];
+      m = t.match(/^(\d+)\s*\/\s*(\d+)$/);
+      if (m) return m[1] / m[2];
+      return parseFloat(t.replace(",", "."));
+    };
+    const niceNum = (v, unit) => {
+      if (unit) {
+        const r = v < 10 ? Math.round(v * 10) / 10 : Math.round(v);
+        return String(r).replace(".", ",");
+      }
+      const q = Math.round(v * 4) / 4, w = Math.floor(q), f = q - w, fr = f === 0.25 ? "\xBC" : f === 0.5 ? "\xBD" : f === 0.75 ? "\xBE" : "";
+      return (w ? String(w) : "") + fr || "\xBC";
+    };
+    function scaleIngredients(text, from, to) {
+      if (!from || !to || from === to) return String(text || "");
+      const k = to / from;
+      return String(text || "").split(/\r?\n/).map((line) => {
+        const t = line.trim(), m = t.match(QTY0);
+        if (!m || /^(?:\d+\s*(?:°|h\b))/.test(t)) return line;
+        const rest = t.slice(m[0].length), unit = /^\s*(?:kg|mg|g|cl|ml|l|dl|c\. à)/i.test(rest);
+        const a = toNum(m[1]) * k, b = m[3] ? toNum(m[3]) * k : null;
+        const head = b !== null ? `${niceNum(a, unit)} \xE0 ${niceNum(b, unit)}` : niceNum(a, unit);
+        return harmonizeLine(head + rest);
+      }).join("\n");
+    }
+    return { isSkipped, parseLine, parseLines, formatQty, itemLabel, addLines, addIngredients, tidyList, harmonizeLine, harmonizeIngredients, scaleIngredients };
   })();
   __m.scan = (() => {
     const { esc } = __m.util;
@@ -1348,7 +1379,7 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
     const { esc, openModal, closeModal, toast } = __m.util;
     const { translateIdea, marmitonSearch } = __m.ext;
     const db = __m.db;
-    const { harmonizeIngredients, addIngredients } = __m.shopping;
+    const { harmonizeIngredients, addIngredients, scaleIngredients } = __m.shopping;
     const ratingHTML = (idea) => idea.rating ? ` <span class="chip rating">\u2605 ${String(idea.rating).replace(".", ",")}/5${idea.ratingCount ? ` \xB7 ${idea.ratingCount} avis` : ""}</span>` : "";
     const stars = (n) => n ? ` <span class="chip rating">\u2605 ${String(n).replace(".", ",")}/5</span>` : "";
     const reviewsHTML = (idea) => idea.source !== "Marmiton" ? "" : idea.reviews && idea.reviews.length ? `<h4>Commentaires des internautes</h4>${idea.reviews.map((r) => `<div class="review"><b>${esc(r.author || "Internaute")}</b>${stars(r.rating)}${r.date ? ` <small class="muted">${esc(r.date)}</small>` : ""}<p>${esc(r.text)}</p></div>`).join("")}` : `<p class="muted small">Pas de commentaires r\xE9cup\xE9r\xE9s pour cette recette.${idea.source_url ? " Ils sont lisibles sur la page Marmiton." : ""}</p>`;
@@ -1361,7 +1392,8 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
       <span class="chip">${esc(idea.source === "Marmiton" ? "Marmiton" : idea.kind === "cocktail" ? idea.category : "Id\xE9e recette")}</span>${ratingHTML(idea)}
       <h3 class="script">${esc(idea.title)}</h3>
       ${idea.area ? `<p class="muted">${esc(idea.area)}</p>` : ""}
-      <h4>Ingr\xE9dients</h4><ul>${ing.map((i) => `<li>${esc(i)}</li>`).join("")}</ul>
+      ${idea.kind === "cocktail" ? "" : `<div class="servings">Pour <button class="btn sm" data-sv="-" aria-label="Moins">\u2212</button> <b id="svN">${idea.servings || 4}</b> <span id="svL">personne${(idea.servings || 4) > 1 ? "s" : ""}</span> <button class="btn sm" data-sv="+" aria-label="Plus">+</button>${idea.servings ? "" : ' <small class="muted">(nombre non pr\xE9cis\xE9 par la source)</small>'}</div>`}
+      <h4>Ingr\xE9dients</h4><ul id="ingList">${ing.map((i) => `<li>${esc(i)}</li>`).join("")}</ul>
       <h4>Pr\xE9paration</h4>${steps.map((s) => `<p>${esc(s)}</p>`).join("")}
       ${idea.lang === "en" ? '<p class="muted small">Texte en anglais (traduction automatique indisponible).</p>' : idea.translated ? '<p class="muted small">Traduit automatiquement.</p>' : ""}
       ${reviewsHTML(idea)}
@@ -1369,6 +1401,25 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
       ${idea.source_url ? `<p><a href="${esc(idea.source_url)}" target="_blank" rel="noopener">${idea.source === "Marmiton" ? "Voir sur Marmiton \u2197" : "Source \u2197"}</a></p>` : ""}
     </div></div>`;
     };
+    function bindServings(root, idea) {
+      const minus = root.querySelector('[data-sv="-"]'), plus = root.querySelector('[data-sv="+"]');
+      if (!minus || !plus) return;
+      if (!idea.baseIngredients) {
+        idea.baseIngredients = harmonizeIngredients(idea.ingredients);
+        idea.baseServings = idea.servings || 4;
+        idea.servings = idea.baseServings;
+      }
+      const apply = (n) => {
+        n = Math.max(1, Math.min(40, n));
+        idea.servings = n;
+        idea.ingredients = scaleIngredients(idea.baseIngredients, idea.baseServings, n);
+        root.querySelector("#svN").textContent = n;
+        root.querySelector("#svL").textContent = n > 1 ? "personnes" : "personne";
+        root.querySelector("#ingList").innerHTML = String(idea.ingredients).split("\n").filter(Boolean).map((i) => `<li>${esc(i)}</li>`).join("");
+      };
+      minus.onclick = () => apply((idea.servings || 4) - 1);
+      plus.onclick = () => apply((idea.servings || 4) + 1);
+    }
     async function saveIdeaAsRecipe(idea, category) {
       return db.add("recipes", {
         title: idea.title,
@@ -1378,7 +1429,7 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
         photo_url: idea.photo_url,
         source_url: idea.source_url,
         notes: idea.source === "Marmiton" ? `Marmiton${idea.rating ? " \xB7 note " + String(idea.rating).replace(".", ",") + "/5" : ""}` : "Id\xE9e trouv\xE9e sur internet",
-        servings: idea.kind === "cocktail" ? 1 : null
+        servings: idea.kind === "cocktail" ? 1 : idea.servings || null
       });
     }
     async function openIdea(fetcher, { title = "Une id\xE9e pour vous", saveCategory } = {}) {
@@ -1408,6 +1459,7 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
     <button class="btn" data-again>\u21BB Une autre id\xE9e</button><button class="btn primary" data-save>\uFF0B Ajouter \xE0 mes recettes</button></div></div>`, { wide: true, onMount: bind });
       const bind = (root) => {
         var _a, _b, _c;
+        if (idea) bindServings(root, idea);
         (_a = root.querySelector("[data-close]")) == null ? void 0 : _a.addEventListener("click", closeModal);
         (_b = root.querySelector("[data-again]")) == null ? void 0 : _b.addEventListener("click", load);
         (_c = root.querySelector("[data-save]")) == null ? void 0 : _c.addEventListener("click", async (e) => {
@@ -1455,6 +1507,7 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
       } });
       const detail = (idea) => openModal(`<div class="ideabox"><h2 class="script">Marmiton</h2>${ideaCardHTML(idea)}
     <div class="formactions wrap"><button class="btn ghost" data-back>\u2039 R\xE9sultats</button><button class="btn ghost" data-close>Fermer</button><span class="grow"></span><button class="btn" data-shop>Ajouter aux courses</button><button class="btn primary" data-save>\uFF0B Ajouter \xE0 mes recettes</button></div></div>`, { wide: true, onMount: (root) => {
+        bindServings(root, idea);
         root.querySelector("[data-back]").onclick = draw;
         root.querySelector("[data-close]").onclick = closeModal;
         root.querySelector("[data-shop]").onclick = async (e) => {
@@ -1480,7 +1533,7 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
       } });
       draw();
     }
-    return { ratingHTML, reviewsHTML, ideaCardHTML, saveIdeaAsRecipe, openIdea, openMarmitonSearch };
+    return { ratingHTML, reviewsHTML, ideaCardHTML, bindServings, saveIdeaAsRecipe, openIdea, openMarmitonSearch };
   })();
   __m.vivino = (() => {
     const { norm } = __m.util;
@@ -1566,7 +1619,21 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
     }
     const TYPE_MAP = { red: "Rouge", white: "Blanc", rose: "Ros\xE9", sparkling: "P\xE9tillant", rouge: "Rouge", blanc: "Blanc", dessert: "Liquoreux", fortified: "Fortifi\xE9" };
     const noteOf = (r) => ["Vivino" + (r.rating ? ` : \u2605 ${String(r.rating).replace(".", ",")}/5` : ""), r.comment].filter(Boolean).join(" \u2014 ");
-    function planSync(rows, existing, { cellarFile = true } = {}) {
+    function planSync(rows0, existing, { cellarFile = true } = {}) {
+      let rows = rows0;
+      if (cellarFile) {
+        const m = /* @__PURE__ */ new Map();
+        rows0.forEach((r) => {
+          const k = r.id || keyOf(r.producer, r.name, r.vintage), q = r.qty > 0 ? r.qty : 1;
+          if (m.has(k)) {
+            const o = m.get(k);
+            o.qty += q;
+            o.rating = o.rating || r.rating;
+            o.comment = o.comment || r.comment;
+          } else m.set(k, __spreadProps(__spreadValues({}, r), { qty: q }));
+        });
+        rows = [...m.values()];
+      }
       const byId = /* @__PURE__ */ new Map(), byKey = /* @__PURE__ */ new Map();
       existing.forEach((b) => {
         const id = vivinoId(b.vivino_url);
@@ -1601,11 +1668,112 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
       const missing = cellarFile ? existing.filter((b) => !seen.has(b.id)).length : 0;
       return { add, update, same, unmatched, missing };
     }
-    const isCellarFile = (csvRows) => {
+    const isCellarFile = (csvRows, fileName = "") => {
       const h = csvRows[0] ? Object.keys(csvRows[0]).join("|") : "";
-      return /quantity|qty|bottles|quantite/.test(h);
+      return /quantity|qty|bottles|quantite/.test(h) || /cellar|cave/i.test(fileName) || !/rating|review|comment|note/.test(h);
     };
     return { parseCSV, vivinoId, keyOf, readRows, planSync, isCellarFile };
+  })();
+  __m.drink = (() => {
+    const { norm } = __m.util;
+    const CAVE_TEMP = 18;
+    const RULES = {
+      Rouge: [
+        [/barolo|barbaresco|brunello|amarone|sassicaia|taurasi/, 8, 25, "grand vin italien"],
+        [/pauillac|saint.?julien|margaux|saint.?estephe|pomerol|pessac|grand cru classe|premier cru classe/, 7, 22, "grand Bordeaux"],
+        [/saint.?emilion|haut.?medoc|medoc|listrac|moulis|graves|fronsac|canon/, 5, 15, "Bordeaux"],
+        [/chambertin|romanee|musigny|echezeaux|clos vougeot|corton|richebourg|grands.?echezeaux/, 8, 25, "grand cru de Bourgogne"],
+        [/gevrey|nuits|vosne|chambolle|volnay|pommard|aloxe|savigny|beaune|morey|santenay|chorey|marsannay|bourgogne/, 4, 12, "Bourgogne"],
+        [/crozes|saint.?joseph/, 3, 10, "Rh\xF4ne nord"],
+        [/hermitage|cote.?rotie|cornas/, 7, 22, "Rh\xF4ne nord (grand)"],
+        [/chateauneuf|gigondas|vacqueyras|vinsobres|rasteau|cairanne/, 4, 14, "Rh\xF4ne sud"],
+        [/cotes du rhone|ventoux|luberon|costieres|lirac|tavel|duche d uzes/, 2, 7, "C\xF4tes-du-Rh\xF4ne"],
+        [/moulin.?a.?vent|morgon|fleurie|brouilly|chiroubles|julienas|chenas|regnie|saint.?amour/, 2, 7, "cru du Beaujolais"],
+        [/beaujolais/, 0, 3, "Beaujolais"],
+        [/chinon|bourgueil|saumur|anjou|touraine|cabernet franc/, 2, 9, "Loire"],
+        [/cahors|madiran|malbec|irouleguy|tursan/, 4, 13, "Sud-Ouest"],
+        [/bergerac|buzet|gaillac|fronton|saint.?mont|marmandais|pecharmant/, 2, 8, "Sud-Ouest"],
+        [/languedoc|minervois|corbieres|fitou|faugeres|saint.?chinian|pic saint.?loup|roussillon|collioure|cotes du roussillon|terrasses du larzac|la clape/, 3, 10, "Languedoc-Roussillon"],
+        [/provence|bandol|cotes de provence|coteaux varois|pierrevert/, 2, 8, "Provence"],
+        [/gran reserva/, 8, 20, "Rioja Gran Reserva"],
+        [/reserva|rioja|ribera|priorat/, 4, 14, "Espagne"],
+        [/chianti|sangiovese|montepulciano|valpolicella|primitivo|nero d avola|rosso|barbera|dolcetto/, 3, 9, "Italie"],
+        [/bordeaux|castillon|cotes de bourg|blaye|entre.?deux.?mers/, 3, 10, "Bordeaux"],
+        [/savoie|mondeuse|arbois|jura/, 2, 7, "Savoie / Jura"],
+        [/alsace|pinot noir/, 2, 7, "Pinot noir"]
+      ],
+      Blanc: [
+        [/montrachet|corton.?charlemagne|meursault|puligny|chassagne/, 5, 16, "grand blanc de Bourgogne"],
+        [/chablis/, 2, 9, "Chablis"],
+        [/pouilly.?fuisse|saint.?veran|macon|vire|bourgogne|rully|montagny|aligote/, 2, 8, "Bourgogne blanc"],
+        [/condrieu|hermitage|saint.?joseph|crozes/, 3, 12, "Rh\xF4ne nord blanc"],
+        [/cotes du rhone|ventoux|luberon|chateauneuf/, 1, 5, "Rh\xF4ne blanc"],
+        [/savennieres|vouvray|montlouis|chenin|coteaux du layon/, 3, 15, "chenin de Loire"],
+        [/sancerre|pouilly.?fume|menetou|quincy|reuilly|sauvignon/, 1, 4, "Sauvignon"],
+        [/muscadet|gros plant/, 1, 5, "Muscadet"],
+        [/riesling|alsace|pinot gris|gewurztraminer|sylvaner|muscat/, 3, 12, "Alsace"],
+        [/vin jaune/, 10, 50, "vin jaune"],
+        [/savagnin|jura|arbois|chateau.?chalon/, 4, 15, "Jura"],
+        [/pessac|graves|haut.?brion|chevalier|sauternes/, 4, 15, "Bordeaux blanc de garde"],
+        [/bordeaux|entre.?deux.?mers/, 1, 5, "Bordeaux blanc"],
+        [/picpoul|gascogne|colombard|igp|pays d oc|vin de france|chardonnay/, 1, 4, "blanc de fra\xEEcheur"],
+        [/languedoc|roussillon|corbieres|minervois/, 1, 6, "Languedoc"],
+        [/provence/, 1, 3, "Provence"]
+      ],
+      "Ros\xE9": [[/bandol/, 1, 4, "ros\xE9 de Bandol"], [/tavel/, 1, 4, "ros\xE9 de Tavel"], [/./, 0, 2, "ros\xE9"]],
+      Effervescent: [
+        [/champagne.*(millesime|vintage|grand cru)|millesime.*champagne|dom perignon|cristal|clicquot la grande|krug/, 5, 18, "champagne mill\xE9sim\xE9"],
+        [/champagne/, 0, 4, "champagne non mill\xE9sim\xE9"],
+        [/cremant|prosecco|cava|asti|blanquette|clairette|petillant|franciacorta|pet nat|mousseux/, 0, 3, "effervescent de fra\xEEcheur"],
+        [/./, 0, 3, "effervescent"]
+      ],
+      Liquoreux: [[/sauternes|barsac|monbazillac|tokaj|jurancon|coteaux du layon|quarts de chaume|bonnezeaux|vendanges tardives|selection de grains/, 6, 30, "grand liquoreux"], [/./, 4, 20, "vin doux"]],
+      "Fortifi\xE9": [[/vintage|colheita/, 15, 50, "porto vintage"], [/lbv|late bottled/, 4, 15, "porto LBV"], [/tawny|ruby|porto|port/, 0, 20, "porto"], [/banyuls|maury|rivesaltes|muscat de/, 3, 25, "vin doux naturel"], [/madere|madeira/, 10, 80, "mad\xE8re"], [/xeres|sherry|jerez|fino|amontillado/, 0, 15, "x\xE9r\xE8s"], [/./, 3, 25, "vin fortifi\xE9"]]
+    };
+    const STATES = {
+      drink: { color: "#2e9e4f", label: "\xC0 consommer", short: "Vert" },
+      keep: { color: "#e8892b", label: "\xC0 conserver", short: "Orange" },
+      past: { color: "#d33a3a", label: "Apr\xE8s apog\xE9e", short: "Rouge" },
+      unknown: { color: "#9aa3a8", label: "Maturit\xE9 inconnue", short: "Gris" }
+    };
+    const years = (t) => (String(t || "").match(/(?:19|20)\d{2}/g) || []).map(Number);
+    function drinkStatus(b, now = /* @__PURE__ */ new Date()) {
+      const year = now.getFullYear();
+      if (!b || b.wine_type === "Spiritueux" || b.category === "Spiritueux") return __spreadProps(__spreadValues({ state: "unknown" }, STATES.unknown), { label: "Se conserve", why: "Spiritueux : pas d\u2019\xE9volution en bouteille ferm\xE9e." });
+      let vintage = Number(b.vintage) || null;
+      const type = RULES[b.wine_type] ? b.wine_type : "Rouge";
+      const text = norm([b.name, b.producer, b.region, b.country, b.notes].join(" ")).replace(/[^a-z0-9 ]/g, " ");
+      let from, to, why;
+      const w = years(b.drinking_window);
+      if (w.length >= 2) {
+        const base2 = vintage || w[0];
+        from = w[0] - base2;
+        to = w[1] - base2;
+        why = `Fen\xEAtre indiqu\xE9e sur la fiche : ${w[0]}\u2013${w[1]}.`;
+      } else if (w.length === 1 && vintage) {
+        from = 0;
+        to = w[0] - vintage;
+        why = `\xC0 boire avant ${w[0]} (fiche).`;
+      } else {
+        const rule = RULES[type].find((r) => r[0].test(text)) || [null, ...{ Rouge: [3, 8, "rouge"], Blanc: [2, 5, "blanc"] }[type] || [2, 8, "vin"]];
+        from = rule[1];
+        to = rule[2];
+        why = `Estimation : ${rule[3]} (${from}\u2013${to} ans apr\xE8s le mill\xE9sime).`;
+        if (!vintage && type === "Effervescent" && b.acquired_on) vintage = Number(String(b.acquired_on).slice(0, 4)) || null;
+      }
+      if (!vintage) return __spreadProps(__spreadValues({ state: "unknown" }, STATES.unknown), { why: "Mill\xE9sime inconnu : impossible d\u2019estimer la maturit\xE9." });
+      const age = year - vintage, ready = vintage + from, end = vintage + to, peak = Math.round(vintage + from + (to - from) * 0.45);
+      const base = { from: ready, to: end, peak, age, why };
+      if (age < from) return __spreadProps(__spreadValues(__spreadValues({ state: "keep" }, STATES.keep), base), { detail: `\xC0 garder jusqu\u2019en ${ready} (apog\xE9e vers ${peak}).` });
+      if (age > to) return __spreadProps(__spreadValues(__spreadValues({ state: "past" }, STATES.past), base), { detail: `Apog\xE9e d\xE9pass\xE9e depuis ${end} : \xE0 boire sans attendre.` });
+      return __spreadProps(__spreadValues(__spreadValues({ state: "drink" }, STATES.drink), base), { label: to - age <= 1 && to > from ? "\xC0 consommer vite" : "\xC0 consommer", detail: `Pr\xEAt jusqu\u2019en ${end} (apog\xE9e vers ${peak}).` });
+    }
+    const drinkSummary = (list) => list.reduce((o, b) => {
+      const s = drinkStatus(b).state;
+      o[s] = (o[s] || 0) + (Number(b.quantity) || 1);
+      return o;
+    }, { drink: 0, keep: 0, past: 0, unknown: 0 });
+    return { CAVE_TEMP, STATES, drinkStatus, drinkSummary };
   })();
   __m.recipes = (() => {
     const { $, $$, esc, toast, openModal, closeModal, formDialog, compressImage, ymd, DAYS } = __m.util;
@@ -1799,6 +1967,7 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
     const { openIdea } = __m.ideas;
     const { randomMeal, randomCocktail, PAIRING, SPIRIT_MAP } = __m.ext;
     const { importCellar } = __m.seed;
+    const { drinkStatus, drinkSummary, STATES, CAVE_TEMP } = __m.drink;
     const { parseCSV, readRows, planSync, isCellarFile } = __m.vivino;
     const TYPES = ["Rouge", "Blanc", "Ros\xE9", "Effervescent", "Liquoreux", "Fortifi\xE9", "Spiritueux"];
     const CATS = ["Vin", "Champagne", "Cr\xE9mant", "Whisky", "Rhum", "Gin", "Cognac", "Vodka", "Tequila", "Liqueur", "Autre"];
@@ -1830,7 +1999,7 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
   </defs>
   <rect x="12" y="10" width="616" height="800" rx="38" fill="url(#steel)" stroke="#080b10" stroke-width="2"/>
   <rect x="190" y="26" width="260" height="36" rx="11" fill="#070b11"/>
-  <text x="320" y="50" text-anchor="middle" fill="#7fd0ff" font-family="ui-monospace,Menlo,monospace" font-size="16" letter-spacing="1.5">12 \xB0C \xB7 ${inCave().filter((b) => b.slot).length}/28</text>
+  <text x="320" y="50" text-anchor="middle" fill="#7fd0ff" font-family="ui-monospace,Menlo,monospace" font-size="16" letter-spacing="1.5">${CAVE_TEMP} \xB0C \xB7 ${inCave().filter((b) => b.slot).length}/28</text>
   <rect x="34" y="74" width="572" height="700" rx="16" fill="url(#inside)" stroke="#0a0f16" stroke-width="3"/>
   <rect x="46" y="80" width="548" height="5" rx="2.5" fill="#e8f4ff"/><rect x="46" y="85" width="548" height="70" fill="url(#led)"/>`;
       for (let r = 0; r < 7; r++) {
@@ -1849,7 +2018,8 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
           <rect x="${x + 16}" y="${y + 6}" width="46" height="26" rx="3" fill="#f4ecd9"/>
           <text x="${x + 39}" y="${y + 17.5}" text-anchor="middle" font-size="6.5" fill="#3b3226" font-family="Georgia,serif">${esc((b.producer || b.name).length > 14 ? (b.producer || b.name).slice(0, 13) + "\u2026" : b.producer || b.name)}</text>
           <text x="${x + 39}" y="${y + 27}" text-anchor="middle" font-size="8" font-weight="700" fill="#7a2a2a" font-family="Georgia,serif">${b.vintage || "NV"}</text>
-          <rect x="${x + 6}" y="${y + 3}" width="76" height="4" rx="2" fill="#fff" opacity=".22"/>`;
+          <rect x="${x + 6}" y="${y + 3}" width="76" height="4" rx="2" fill="#fff" opacity=".22"/>
+          ${((d) => d.state === "unknown" ? "" : `<circle cx="${x + 70}" cy="${y + 19}" r="5" fill="${d.color}" stroke="#fff" stroke-width="1.5"/>`)(drinkStatus(b))}`;
           } else {
             s += `<path d="${body}" fill="rgba(255,255,255,.04)" stroke="rgba(255,255,255,.2)" stroke-dasharray="4 4"/>
           <rect x="${x + 100}" y="${y + 13}" width="28" height="12" rx="2" fill="none" stroke="rgba(255,255,255,.14)" stroke-dasharray="3 3"/>`;
@@ -1869,11 +2039,15 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
     const stat = (n, l) => `<div class="stat glass"><b>${n}</b><span>${l}</span></div>`;
     const qty = (b) => b.quantity || 1;
     const sum = (a) => a.reduce((t, b) => t + qty(b), 0);
+    const drinkPill = (b) => {
+      const d = drinkStatus(b);
+      return d.state === "unknown" ? "" : `<span class="chip drink" title="${esc(d.detail || d.why)}"><i style="background:${d.color}"></i>${d.label}</span>`;
+    };
     function rowHTML(b) {
       const where = b.location_kind === "cave" ? b.slot ? slotInfo(b.slot) : "Cave \xB7 \xE0 placer" : [KIND_LABEL[b.location_kind], b.place_label].filter(Boolean).join(" \xB7 ");
       return `<button class="row bottle" data-id="${b.id}">${b.photo_url ? `<img class="thumb" src="${esc(b.photo_url)}" alt="" loading="lazy">` : `<span class="dot" style="background:${(GLASS[b.wine_type] || GLASS.Rouge)[0]}"></span>`}
     <span class="grow"><b>${esc(b.name)}</b> ${b.vintage ? `<span class="muted">${b.vintage}</span>` : ""}<br><small>${esc([b.producer, b.wine_type, b.country].filter(Boolean).join(" \xB7 "))}</small></span>
-    <span class="where"><small>${esc(where)}${b.position_note ? ` \u2014 <i>${esc(b.position_note)}</i>` : ""}</small></span>${b.estimated_value ? `<span class="chip price">${Number(b.estimated_value).toLocaleString("fr-FR")} \u20AC</span>` : ""}${qty(b) > 1 ? `<span class="chip">\xD7${qty(b)}</span>` : ""}</button>`;
+    <span class="where"><small>${esc(where)}${b.position_note ? ` \u2014 <i>${esc(b.position_note)}</i>` : ""}</small></span>${b.estimated_value ? `<span class="chip price">${Number(b.estimated_value).toLocaleString("fr-FR")} \u20AC</span>` : ""}${drinkPill(b)}${qty(b) > 1 ? `<span class="chip">\xD7${qty(b)}</span>` : ""}</button>`;
     }
     const b64blob = (b64, mime) => {
       const s = atob(b64), a = new Uint8Array(s.length);
@@ -1979,11 +2153,19 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
         $("[data-close]", r).onclick = closeModal;
       } });
     }
+    function drinkCard() {
+      const sum2 = drinkSummary(items().filter((b) => b.category !== "Spiritueux" && b.wine_type !== "Spiritueux"));
+      const li = (k) => `<div class="drinkline"><i style="background:${STATES[k].color}"></i><b>${sum2[k]}</b> ${STATES[k].label.toLowerCase()}</div>`;
+      return `<div class="card glass"><h3>Maturit\xE9 des bouteilles</h3>${li("drink")}${li("keep")}${li("past")}${sum2.unknown ? li("unknown") : ""}
+    <p class="muted small">Vert : \xE0 boire maintenant. Orange : \xE0 garder, pas encore pr\xEAte. Rouge : apog\xE9e d\xE9pass\xE9e, \xE0 boire sans attendre. Estimation selon le type de vin, l\u2019appellation et le mill\xE9sime ; une fen\xEAtre saisie sur la fiche (ex. 2025\u20132032) est prioritaire.</p></div>`;
+    }
     function caveView() {
       const placed = inCave().filter((b) => b.slot), loose = inCave().filter((b) => !b.slot);
       return `<div class="cave-layout"><div class="cabinetwrap">${cabinetSVG()}</div>
    <div class="cave-side"><div class="card glass"><h3 class="script">Ma cave \xE0 vin</h3><p class="muted">28 emplacements \xB7 ${placed.length} occup\xE9s \xB7 ${28 - placed.length} libres. Touchez une bouteille pour voir sa fiche, ou un emplacement libre pour y ranger une bouteille.</p>
+     <p class="cavetemp"><b>${CAVE_TEMP} \xB0C</b> \xB7 temp\xE9rature de la cave</p>
      <div class="legend">${TYPES.slice(0, 6).map((t) => `<span><i style="background:${GLASS[t][0]}"></i>${t}</span>`).join("")}</div></div>
+     ${drinkCard()}
      <div class="card glass"><h3>\xC0 placer dans la cave (${loose.length})</h3>${loose.map(rowHTML).join("") || '<p class="muted">Toutes les bouteilles de la cave ont un emplacement.</p>'}</div></div></div>`;
     }
     function groupedList(kind) {
@@ -2013,7 +2195,7 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
     function html() {
       const all = items();
       const imp = all.length === 0 ? `<div class="card glass accent"><h3 class="script">Premier d\xE9marrage</h3><p>Votre export Vivino (36 lignes : 30 bouteilles en cave, le reste en placard) est pr\xEAt \xE0 \xEAtre import\xE9.</p><button class="btn primary" id="impCellar">Importer ma cave Vivino</button></div>` : "";
-      return `<div class="stats">${stat(sum(all), "bouteilles")}${stat(inCave().filter((b) => b.slot).length + "/28", "cave \xE0 vin")}${stat(sum(all.filter((b) => b.location_kind === "placard")), "en placard")}${stat(sum(all.filter((b) => b.location_kind === "exterieur")), "\xE0 l\u2019ext\xE9rieur")}${stat(totalValue() ? totalValue().toLocaleString("fr-FR") + " \u20AC" : "\u2014", "valeur estim\xE9e")}</div>
+      return `<div class="stats">${stat(sum(all), "bouteilles")}${stat(inCave().filter((b) => b.slot).length + "/28", "cave \xE0 vin")}${stat(sum(all.filter((b) => b.location_kind === "placard")), "en placard")}${stat(sum(all.filter((b) => b.location_kind === "exterieur")), "\xE0 l\u2019ext\xE9rieur")}${stat(CAVE_TEMP + " \xB0C", "temp\xE9rature de la cave")}${stat(totalValue() ? totalValue().toLocaleString("fr-FR") + " \u20AC" : "\u2014", "valeur estim\xE9e")}</div>
   ${imp}
   <div class="bar"><div class="seg" id="cseg">${[["cave", "Cave \xE0 vin"], ["placard", "Placards"], ["exterieur", "Ext\xE9rieur"], ["tout", "Inventaire"]].map(([k, l]) => `<button data-v="${k}" class="${view === k ? "on" : ""}">${l}</button>`).join("")}</div>
    <span class="grow"></span><button class="btn" id="scanBtn">Scanner une bouteille</button><button class="btn" id="vivSync">Mettre \xE0 jour depuis Vivino</button><button class="btn" id="labelBtn">\xC9tiquettes</button><button class="btn" id="priceBtn">Prix des bouteilles</button><button class="btn" id="cocktailBtn">Id\xE9e de cocktail</button><button class="btn primary" data-add="${view === "placard" || view === "exterieur" ? view : "cave"}">\uFF0B Bouteille</button></div>
@@ -2109,6 +2291,10 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
         }
       });
     }
+    const drinkRowHTML = (b) => {
+      const d = drinkStatus(b);
+      return `<div class="kv"><span>Maturit\xE9</span><b><i class="ddot" style="background:${d.color}"></i>${esc(d.label)}</b></div><p class="muted small">${esc(d.detail || "")} ${esc(d.why || "")}</p>`;
+    };
     function detail(b) {
       const row = (l, v) => v ? `<div class="kv"><span>${l}</span><b>${esc(v)}</b></div>` : "";
       const where = b.location_kind === "cave" ? b.slot ? `Cave \xE0 vin \xB7 ${slotInfo(b.slot)} (n\xB0${b.slot})` : "Cave \xE0 vin \xB7 \xE0 placer" : [KIND_LABEL[b.location_kind], b.place_label].filter(Boolean).join(" \xB7 ");
@@ -2117,7 +2303,7 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
       <div><span class="chip">${esc(b.wine_type)} \xB7 ${esc(b.category || "")}</span><h2 class="script">${esc(b.name)}</h2><p class="muted">${esc([b.producer, b.vintage].filter(Boolean).join(" \xB7 "))}</p></div></div>
     ${row("Emplacement", where)}${row("Position pr\xE9cise", b.position_note)}${row("Quantit\xE9", qty(b) > 1 ? qty(b) : "")}${row("Pays / r\xE9gion", [b.country, b.region].filter(Boolean).join(" \xB7 "))}${row("Format", b.bottle_size)}
     ${row("Prix d\u2019achat", b.purchase_price ? b.purchase_price + " \u20AC" : "")}${row("Source du prix", b.price_note)}${row("Valeur estim\xE9e (par bouteille)", b.estimated_value ? `${b.estimated_value} \u20AC${b.price_updated_at ? ` \xB7 ${b.price_source === "web" ? "estimation web" : "saisi"} le ${new Date(b.price_updated_at).toLocaleDateString("fr-FR")}` : ""}` : "")}${row("Date d\u2019achat", b.acquired_on)}
-    ${row("\xC0 boire", b.drinking_window)}${row("Service", b.serving_temperature)}${row("Accords", b.food_pairing)}${row("Notes", b.notes)}${row("Source du prix", b.price_note)}
+    ${drinkRowHTML(b)}${row("\xC0 boire", b.drinking_window)}${row("Service", b.serving_temperature)}${row("Accords", b.food_pairing)}${row("Notes", b.notes)}${row("Source du prix", b.price_note)}
     ${b.vivino_url ? `<p><a href="${esc(b.vivino_url)}" target="_blank" rel="noopener">Voir sur Vivino \u2197</a></p>` : ""}
     <div class="formactions wrap"><button class="btn" data-act="meal">Id\xE9e de plat</button><button class="btn" data-act="cocktail">Id\xE9e de cocktail</button><span class="grow"></span>
       <button class="btn" data-act="drunk">Bue / sortie</button><button class="btn" data-act="edit">Modifier</button><button class="btn ghost" data-close>Fermer</button></div></div>`, {
@@ -2186,7 +2372,7 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
             const msgs = [];
             try {
               for (const f of [...e.target.files]) {
-                const csv = parseCSV(await readText(f)), rows = readRows(csv), cellarFile = isCellarFile(csv);
+                const csv = parseCSV(await readText(f)), rows = readRows(csv), cellarFile = isCellarFile(csv, f.name);
                 if (!rows.length) {
                   msgs.push(`${f.name} : aucune bouteille reconnue (colonnes : ${csv[0] ? Object.keys(csv[0]).slice(0, 8).join(", ") : "vide"})`);
                   continue;
@@ -2197,7 +2383,7 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
                 plan.same += p.same;
                 plan.unmatched += p.unmatched;
                 if (cellarFile) plan.missing = p.missing;
-                msgs.push(`${f.name} : ${rows.length} lignes (${cellarFile ? "cave" : "notes / commentaires"})`);
+                msgs.push(`${f.name} : ${rows.length} lignes (${cellarFile ? "cave" : "notes / commentaires"}) \xB7 colonnes : ${Object.keys(csv[0]).slice(0, 14).join(", ")}`);
               }
               msgs.push(`<b>${plan.add.length}</b> nouvelle${plan.add.length > 1 ? "s" : ""} bouteille${plan.add.length > 1 ? "s" : ""} (rang\xE9es dans \xAB \xC0 ranger \xBB), <b>${plan.update.length}</b> mise${plan.update.length > 1 ? "s" : ""} \xE0 jour, ${plan.same} inchang\xE9e${plan.same > 1 ? "s" : ""}${plan.missing ? `, ${plan.missing} bouteille${plan.missing > 1 ? "s" : ""} de votre cave absente${plan.missing > 1 ? "s" : ""} de l\u2019export (rien n\u2019est supprim\xE9)` : ""}.`);
               out.innerHTML = msgs.map((m) => `<div>${/^<b>/.test(m) ? m : esc(m)}</div>`).join("");

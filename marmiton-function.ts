@@ -42,6 +42,14 @@ function steps(r: any): string {
   return walk(r.recipeInstructions).filter(Boolean).join('\n');
 }
 
+// nombre de personnes (recipeYield : « 4 personnes », ["4", "4 personnes"], 4…)
+function yieldOf(r: any): number | null {
+  const y = Array.isArray(r.recipeYield) ? r.recipeYield.join(' ') : String(r.recipeYield ?? '');
+  const m = y.match(/\d+/);
+  const n = m ? parseInt(m[0], 10) : NaN;
+  return n >= 1 && n <= 50 ? n : null;
+}
+
 // commentaires des internautes : d'abord le balisage JSON-LD (review), sinon les blocs « avis » de la page
 function reviewsOf(r: any, html: string) {
   const out: { author: string; rating: number | null; text: string; date: string }[] = [];
@@ -68,7 +76,7 @@ async function fetchRecipe(url: string) {
   return {
     kind: 'recipe', title: dec(r.name), category: 'Marmiton', area: dec([].concat(r.recipeCategory || []).join(' · ')),
     ingredients: (r.recipeIngredient || []).map(dec).join('\n'), instructions: steps(r), photo_url: img(r.image),
-    source_url: url, id: url, lang: 'fr', source: 'Marmiton', reviews: reviewsOf(r, html), rating: Number.isFinite(rating) && rating > 0 ? Math.round(rating * 10) / 10 : null, ratingCount: count || null,
+    source_url: url, id: url, lang: 'fr', source: 'Marmiton', servings: yieldOf(r), reviews: reviewsOf(r, html), rating: Number.isFinite(rating) && rating > 0 ? Math.round(rating * 10) / 10 : null, ratingCount: count || null,
   };
 }
 

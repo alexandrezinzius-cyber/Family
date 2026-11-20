@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Diagnostic</title>
+<style>body{font-family:-apple-system,Helvetica,Arial,sans-serif;margin:16px;background:#fff;color:#111;font-size:17px}h1{font-size:22px}.ok{color:#0a7a2f}.ko{color:#c00;font-weight:bold}.i{color:#555}div.l{padding:5px 0;border-bottom:1px solid #ddd}</style></head>
+<body><h1>Diagnostic du site Family</h1><p class="i">Attendez 10 secondes, puis faites une capture d'écran de toute la page et envoyez-la.</p><div id="out"></div>
+<script>
+var out = document.getElementById('out');
+function line(ok, txt) { var d = document.createElement('div'); d.className = 'l ' + (ok === null ? 'i' : ok ? 'ok' : 'ko'); d.textContent = (ok === null ? '' : ok ? 'OK  ' : 'ERREUR  ') + txt; out.appendChild(d); }
+window.onerror = function (m, s, l) { line(false, 'Erreur JavaScript : ' + m + ' (' + String(s || '').split('/').pop() + ':' + l + ')'); };
+line(true, 'JavaScript fonctionne');
+line(null, 'Navigateur : ' + navigator.userAgent);
+var feats = { fetch: typeof fetch, Promise: typeof Promise, Symbol: typeof Symbol, 'Object.assign': typeof Object.assign, 'Array.from': typeof Array.from, 'crypto.getRandomValues': window.crypto && crypto.getRandomValues ? 'function' : (window.msCrypto ? 'ms' : 'undefined'), IndexedDB: typeof indexedDB, FileReader: typeof FileReader, speechSynthesis: typeof window.speechSynthesis };
+for (var k in feats) line(feats[k] !== 'undefined', k + ' : ' + feats[k]);
+try { localStorage.setItem('t', '1'); localStorage.removeItem('t'); line(true, 'localStorage'); } catch (e) { line(false, 'localStorage bloqué : ' + e.message + ' (désactivez la navigation privée)'); }
+function syntaxCheck(url, name, cb) {
+  var x = new XMLHttpRequest(); x.open('GET', url + (url.indexOf('?') < 0 ? '?' : '&') + 'd=' + Date.now()); x.timeout = 20000;
+  x.onload = function () {
+    if (x.status !== 200) { line(false, name + ' : téléchargement impossible (code ' + x.status + ')'); return cb && cb(); }
+    try { new Function(x.responseText); line(true, name + ' : syntaxe compatible avec cet appareil (' + Math.round(x.responseText.length / 1024) + ' Ko)'); }
+    catch (e) { line(false, name + ' : NON compatible avec cet appareil — ' + e.name + ' : ' + e.message); }
+    cb && cb();
+  };
+  x.onerror = x.ontimeout = function () { line(false, name + ' : téléchargement impossible (réseau)'); cb && cb(); };
+  x.send();
+}
+syntaxCheck('app.js', 'app.js (le site)', function () {
+  syntaxCheck('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2', 'supabase-js (connexion Supabase)', function () {
+    syntaxCheck('config.js', 'config.js', function () {
+      var s = document.createElement('script'); s.src = 'config.js'; s.onload = function () {
+        line(!!window.SUPABASE_URL, 'config.js : SUPABASE_URL ' + (window.SUPABASE_URL ? 'présent' : 'absent'));
+        line(!!window.SUPABASE_ANON_KEY, 'config.js : SUPABASE_ANON_KEY ' + (window.SUPABASE_ANON_KEY ? 'présent' : 'absent'));
+        if (window.SUPABASE_URL) {
+          var r = new XMLHttpRequest(); r.open('GET', window.SUPABASE_URL + '/auth/v1/settings'); r.setRequestHeader('apikey', window.SUPABASE_ANON_KEY || ''); r.timeout = 15000;
+          r.onload = function () { line(r.status === 200, 'Connexion à Supabase : code ' + r.status); line(null, 'Fin du diagnostic.'); };
+          r.onerror = r.ontimeout = function () { line(false, 'Connexion à Supabase impossible (réseau ou blocage)'); line(null, 'Fin du diagnostic.'); };
+          r.send();
+        } else line(null, 'Fin du diagnostic.');
+      }; s.onerror = function () { line(false, 'config.js introuvable'); line(null, 'Fin du diagnostic.'); }; document.head.appendChild(s);
+    });
+  });
+});
+</script></body></html>
