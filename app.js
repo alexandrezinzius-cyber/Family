@@ -435,6 +435,24 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
       }
       writeCache();
     }
+    async function delMany(table, ids) {
+      if (!ids.length) return 0;
+      const old = store.t[table].filter((r) => ids.indexOf(r.id) >= 0), set = new Set(ids);
+      store.t[table] = store.t[table].filter((r) => !set.has(r.id));
+      emit(table);
+      for (let i = 0; i < ids.length; i += 100) {
+        const { error } = await store.sb.from(table).delete().in("id", ids.slice(i, i + 100));
+        if (error) {
+          old.forEach((r) => {
+            if (!store.t[table].some((x) => x.id === r.id)) store.t[table].push(r);
+          });
+          emit(table);
+          throw error;
+        }
+      }
+      writeCache();
+      return ids.length;
+    }
     async function uploadPhoto(blob, folder = "misc", mime = "image/jpeg") {
       const ext = { "image/png": "png", "image/webp": "webp", "image/gif": "gif" }[mime] || "jpg";
       const path = `${folder}/${crypto.randomUUID()}.${ext}`;
@@ -442,7 +460,7 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
       if (error) throw error;
       return store.sb.storage.from("photos").getPublicUrl(path).data.publicUrl;
     }
-    return { TABLES, store, onChange, createClientFromConfig, clearCache, loadFamily, loadAll, startRealtime, stopRealtime, add, addMany, patch, del, uploadPhoto };
+    return { TABLES, store, onChange, createClientFromConfig, clearCache, loadFamily, loadAll, startRealtime, stopRealtime, add, addMany, patch, del, delMany, uploadPhoto };
   })();
   __m.ext = (() => {
     const { pick } = __m.util;
@@ -650,6 +668,7 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
       idea.note = FALLBACK(why);
       return idea;
     }
+    const marmitonMeal = (query, exclude = []) => marmiton(query || "plat", "platprincipal", exclude);
     async function randomMealDB(cats, exclude) {
       var _a;
       for (let t = 0; t < 4; t++) {
@@ -717,7 +736,7 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
         return idea;
       }
     }
-    return { MEAL_CATS, PAIRING, SPIRIT_MAP, marmitonSearch, randomMeal, randomCocktail, translateIdea };
+    return { MEAL_CATS, PAIRING, SPIRIT_MAP, marmitonSearch, randomMeal, marmitonMeal, randomCocktail, translateIdea };
   })();
   __m.ingredients = (() => {
     const { norm } = __m.util;
@@ -2551,8 +2570,8 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
   __m.menus = (() => {
     const { $, $$, esc, toast, openModal, closeModal, formDialog, ymd, parseYmd, addDays, weekStartSaturday, fmtLong, fmtShort, shuffle, pick, DAYS, guessShop } = __m.util;
     const db = __m.db;
-    const { randomMeal, MEAL_CATS, translateIdea } = __m.ext;
-    const { addIngredients } = __m.shopping;
+    const { marmitonMeal, translateIdea } = __m.ext;
+    const { addIngredients, scaleIngredients } = __m.shopping;
     const { scoreRecipe, seasonalNames, MONTHS } = __m.season;
     const { openRecipe } = __m.recipes;
     const { openIdea, saveIdeaAsRecipe, ratingHTML } = __m.ideas;
@@ -2566,10 +2585,11 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
     const typesOf = (d) => d.getDay() === 6 || d.getDay() === 0 ? ["midi", "soir"] : ["soir"];
     const planAt = (date, type) => plans().find((p) => p.meal_date === date && p.meal_type === type);
     function mealCell(d, type) {
+      var _a;
       const p = planAt(ymd(d), type), r = (p == null ? void 0 : p.recipe_id) ? recipeById(p.recipe_id) : null;
       return `<div class="meal ${p ? "filled" : ""}" data-date="${ymd(d)}" data-type="${type}">
     <small class="mtype">${TYPE_LABEL[type]}</small>
-    ${p ? `<div class="mrow">${(r == null ? void 0 : r.photo_url) ? `<img src="${esc(r.photo_url)}" alt="" loading="lazy">` : ""}<span><b>${esc(p.title || (r == null ? void 0 : r.title) || "Repas")}</b><small>${p.servings || 3} pers.</small></span></div>` : '<span class="plus">\uFF0B</span>'}</div>`;
+    ${p ? `<div class="mrow">${(r == null ? void 0 : r.photo_url) ? `<img src="${esc(r.photo_url)}" alt="" loading="lazy">` : ""}<span><b>${esc(p.title || (r == null ? void 0 : r.title) || "Repas")}</b><small>${p.servings || 3} pers.</small></span></div>` : (SECOND_EVENING.includes(d.getDay()) && type === "soir" && (((_a = planAt(ymd(addDays(d, -1)), "soir")) == null ? void 0 : _a.servings) || 0) >= 6 ? '<small class="muted">\u21B3 suite du repas de la veille</small>' : "") + '<span class="plus">\uFF0B</span>'}</div>`;
     }
     function html() {
       const days = weekDays(weekStart);
@@ -2577,10 +2597,10 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
       const banner = today.getDay() === 5 && ymd(weekStart) === ymd(weekStartSaturday(addDays(today, 1))) && empty ? `<div class="card glass accent"><b>C\u2019est vendredi !</b> On pr\xE9pare les menus de la semaine qui commence demain ? <button class="btn primary" data-propose>Proposer les menus</button></div>` : "";
       return `${banner}<div class="bar"><div class="seg"><button id="wprev" aria-label="Semaine pr\xE9c\xE9dente">\u2039</button><button id="wnow">Cette semaine</button><button id="wnext" aria-label="Semaine suivante">\u203A</button></div>
     <b class="weeklabel">${fmtShort(weekStart)} \u2192 ${fmtShort(addDays(weekStart, 6))}</b><span class="grow"></span>
-    <button class="btn" id="weekShop">Ajouter les courses de la semaine</button><button class="btn" id="toList">Voir la liste de courses</button><button class="btn primary" data-propose>Proposer les menus</button></div>
+    <button class="btn" id="weekShop">Ajouter les courses de la semaine</button><button class="btn" id="toList">Voir la liste de courses</button><button class="btn danger" id="clearPlan">Supprimer tous les repas</button><button class="btn primary" data-propose>Proposer les menus</button></div>
   <div class="week">${days.map((d) => `<div class="daycard glass ${ymd(d) === ymd(today) ? "today" : ""}"><h4>${esc(fmtLong(d))}</h4>${typesOf(d).map((t) => mealCell(d, t)).join("")}</div>`).join("")}</div>
   <p class="muted small">De saison en ${MONTHS[seasonMonth() - 1]} : ${esc(seasonalNames(seasonMonth()).join(", "))}.</p>
-  <p class="muted small">Chaque d\xEEner est pr\xE9vu pour 3 personnes. Novembre \xE0 mars : soupe le dimanche et le lundi soir. Les propositions utilisent d\u2019abord votre carnet, en \xE9vitant ce que vous avez cuisin\xE9 ces trois derni\xE8res semaines.</p>`;
+  <p class="muted small">Un d\xEEner suffit pour deux soirs : la proposition automatique pr\xE9voit un repas le dimanche (dimanche + lundi), le mardi (mardi + mercredi) et le jeudi (jeudi + vendredi), pour 6 portions, et un d\xEEner le samedi. Vous pouvez planifier n\u2019importe quel soir \xE0 la main en touchant la case. Novembre \xE0 mars : soupe le dimanche et le lundi soir. Les propositions utilisent d\u2019abord votre carnet, en \xE9vitant ce que vous avez cuisin\xE9 ces trois derni\xE8res semaines.</p>`;
     }
     function editSlot(date, type) {
       const p = planAt(date, type);
@@ -2608,7 +2628,7 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
       });
     }
     const isSoup = (r) => /soupe|velout|potage|bouillon/i.test(r.title);
-    let prop = [], propWeb = false;
+    let prop = [], propWebN = 2, webError = "";
     function pools() {
       const mine = recipes().filter((r) => !/^cocktail/i.test(r.category || ""));
       const recent = new Set(plans().filter((p) => p.recipe_id && parseYmd(p.meal_date) >= addDays(weekStart, -21) && parseYmd(p.meal_date) < weekStart).map((p) => p.recipe_id));
@@ -2634,7 +2654,8 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
       }
       return base[base.length - 1];
     }
-    const fromRecipe = (date, type, r, servings = 3) => ({ date, type, servings, recipe_id: (r == null ? void 0 : r.id) || null, title: (r == null ? void 0 : r.title) || "", photo_url: (r == null ? void 0 : r.photo_url) || null, web: null, seasonal: r ? scoreRecipe(r, seasonMonth()).hits : [] });
+    const SECOND_EVENING = [1, 3, 5];
+    const fromRecipe = (date, type, r, servings = 3) => ({ date, type, servings, covers: servings >= 6 ? 2 : 1, recipe_id: (r == null ? void 0 : r.id) || null, title: (r == null ? void 0 : r.title) || "", photo_url: (r == null ? void 0 : r.photo_url) || null, web: null, seasonal: r ? scoreRecipe(r, seasonMonth()).hits : [] });
     async function buildProposal(withWeb) {
       const { recent, soups, dinners, lunches } = pools();
       const used = /* @__PURE__ */ new Set(), out = [];
@@ -2642,56 +2663,64 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
       const soup = winter ? pickFrom(soups, /* @__PURE__ */ new Set(), recent) : null;
       for (const d of weekDays(weekStart)) for (const type of typesOf(d)) {
         const date = ymd(d), dow = d.getDay();
-        if (winter && type === "soir" && (dow === 0 || dow === 1)) {
-          out.push(soup ? fromRecipe(date, type, soup) : { date, type, servings: 3, recipe_id: null, title: "Soupe maison", photo_url: null, web: null });
+        if (type === "soir" && SECOND_EVENING.includes(dow)) continue;
+        if (winter && type === "soir" && dow === 0) {
+          out.push(soup ? fromRecipe(date, type, soup, 6) : { date, type, servings: 6, covers: 2, recipe_id: null, title: "Soupe maison", photo_url: null, web: null });
           continue;
         }
         const pool = type === "midi" ? lunches.length ? lunches : dinners : dinners;
         const r = pickFrom(pool, used, recent);
         if (r) used.add(r.id);
-        out.push(fromRecipe(date, type, r));
+        out.push(fromRecipe(date, type, r, type === "soir" && dow !== 6 ? 6 : 3));
       }
-      if (withWeb) {
-        const targets = out.filter((e) => e.type === "soir" && [3, 5].includes(parseYmd(e.date).getDay()));
-        await Promise.all(targets.map(async (e) => {
+      webError = "";
+      if (withWeb > 0) {
+        const pref = [3, 5, 2, 4, 6, 0, 1], rank = (e) => pref.indexOf(parseYmd(e.date).getDay());
+        const soir = out.filter((e) => e.type === "soir" && !(e.recipe_id === null && e.title === "Soupe maison") && !(winter && soup && e.recipe_id === soup.id)).sort((x, y) => rank(x) - rank(y));
+        const midi = out.filter((e) => e.type === "midi").sort((x, y) => rank(x) - rank(y));
+        const targets = soir.concat(midi).slice(0, withWeb);
+        for (let i = 0; i < targets.length; i++) {
           try {
-            await setWeb(e);
+            await setWeb(targets[i], out);
           } catch (err) {
             console.warn(err);
+            webError = err.message || String(err);
+            break;
           }
-        }));
+        }
       }
       return out;
     }
-    async function setWeb(e) {
-      const idea = await translateIdea(await randomMeal(MEAL_CATS["Plat"], prop.filter((x) => x.web).map((x) => x.web.id), { query: pick(seasonalNames((/* @__PURE__ */ new Date()).getMonth() + 1)) }));
+    async function setWeb(e, list = prop) {
+      const idea = await translateIdea(await marmitonMeal(pick(seasonalNames((/* @__PURE__ */ new Date()).getMonth() + 1)), list.filter((x) => x.web).map((x) => x.web.id)));
       Object.assign(e, { web: idea, recipe_id: null, title: idea.title, photo_url: idea.photo_url });
     }
     const entryRow = (e, i) => {
       var _a;
-      return `<div class="prow"><span class="pday">${esc(fmtShort(parseYmd(e.date)))}<small>${TYPE_LABEL[e.type]}</small></span>
+      return `<div class="prow"><span class="pday">${esc(fmtShort(parseYmd(e.date)))}<small>${TYPE_LABEL[e.type]}${e.covers === 2 ? " \xB7 2 soirs" : ""}</small></span>
   ${e.photo_url ? `<img src="${esc(e.photo_url)}" alt="">` : '<span class="thumb"></span>'}
   <span class="grow"><b>${esc(e.title || "\u2014 rien de trouv\xE9 \u2014")}</b>${e.web ? `<small><span class="chip">${e.web.source === "Marmiton" ? "Marmiton" : "id\xE9e internet"}</span>${ratingHTML(e.web)}</small>` : e.recipe_id ? `<small>de votre carnet${((_a = e.seasonal) == null ? void 0 : _a.length) ? ` \xB7 de saison : ${esc(e.seasonal.slice(0, 3).join(", "))}` : ""}</small>` : ""}</span>
   <button class="iconbtn" data-reroll="${i}" aria-label="Autre proposition">\u21BB</button><button class="iconbtn" data-drop="${i}" aria-label="Retirer">\xD7</button></div>`;
     };
     async function showProposal() {
-      openModal(`<div class="detail"><h2 class="script">Menus de la semaine</h2><div class="loading"><span class="spinner"></span> Je pr\xE9pare des propositions\u2026</div></div>`, { wide: true });
+      openModal(`<div class="detail"><h2 class="script">Menus de la semaine</h2><div class="loading"><span class="spinner"></span> Je pr\xE9pare des propositions\u2026${propWebN ? ` (recherche de ${propWebN} recette${propWebN > 1 ? "s" : ""} sur Marmiton, cela peut prendre un moment)` : ""}</div></div>`, { wide: true });
       prop = [];
-      prop = await buildProposal(propWeb);
+      prop = await buildProposal(propWebN);
       paintProposal();
     }
     function paintProposal() {
       openModal(`<div class="detail"><h2 class="script">Menus de la semaine</h2><p class="muted">Du ${esc(fmtShort(weekStart))} au ${esc(fmtShort(addDays(weekStart, 6)))} Changez ce qui ne vous pla\xEEt pas avec \u21BB, puis validez.</p>
     ${prop.map(entryRow).join("")}
-    <label class="field check"><input type="checkbox" id="pWeb" ${propWeb ? "checked" : ""}> <span>Inclure 2 id\xE9es de recettes trouv\xE9es sur internet</span></label>
+    <label class="field"><span>Recettes trouv\xE9es sur Marmiton</span><select id="pWebN">${[0, 1, 2, 3, 4, 5, 6, 7].map((n) => `<option value="${n}" ${n === propWebN ? "selected" : ""}>${n === 0 ? "Aucune (uniquement mon carnet)" : n}</option>`).join("")}</select></label>
+    ${webError ? `<p class="muted small">Marmiton n\u2019a pas r\xE9pondu (${esc(webError.slice(0, 120))}) : le reste vient de votre carnet.</p>` : ""}
     <label class="field check"><input type="checkbox" id="pOver"> <span>Remplacer les repas d\xE9j\xE0 planifi\xE9s</span></label>
     <label class="field check"><input type="checkbox" id="pShop" checked> <span>Ajouter les ingr\xE9dients \xE0 la liste de courses</span></label>
     <div class="formactions wrap"><button class="btn ghost" data-close>Annuler</button><span class="grow"></span><button class="btn" id="pAgain">\u21BB Tout r\xE9g\xE9n\xE9rer</button><button class="btn primary" id="pOk">Valider ces menus</button></div></div>`, {
         wide: true,
         onMount: (root) => {
           $("[data-close]", root).onclick = closeModal;
-          $("#pWeb", root).onchange = (e) => {
-            propWeb = e.target.checked;
+          $("#pWebN", root).onchange = (e) => {
+            propWebN = Number(e.target.value);
             showProposal();
           };
           $("#pAgain", root).onclick = showProposal;
@@ -2710,7 +2739,7 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
                 const { recent, dinners, lunches } = pools();
                 const used = new Set(prop.map((x) => x.recipe_id).filter(Boolean));
                 const r = pickFrom(en.type === "midi" && lunches.length ? lunches : dinners, used, recent);
-                if (r) Object.assign(en, fromRecipe(en.date, en.type, r));
+                if (r) Object.assign(en, fromRecipe(en.date, en.type, r, en.servings));
               }
             } catch (err) {
               toast(err.message, "err");
@@ -2740,7 +2769,7 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
         let recipe = e.recipe_id ? recipeById(e.recipe_id) : null;
         if (e.web) recipe = await saveIdeaAsRecipe(e.web, "Plat");
         rows.push({ meal_date: e.date, meal_type: e.type, recipe_id: (recipe == null ? void 0 : recipe.id) || null, title: (recipe == null ? void 0 : recipe.title) || e.title, servings: e.servings });
-        if (shop && recipe) ingredients += await addIngredients(recipe);
+        if (shop && recipe) ingredients += await addIngredients(e.covers === 2 ? __spreadProps(__spreadValues({}, recipe), { ingredients: scaleIngredients(recipe.ingredients, recipe.servings || 4, e.servings) }) : recipe);
       }
       added = (await db.addMany("meal_plans", rows)).length;
       closeModal();
@@ -2748,6 +2777,17 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
     }
     function bind(root, rerender, go) {
       $("#toList", root).onclick = () => go("courses");
+      $("#clearPlan", root).onclick = async () => {
+        const all = db.store.t.meal_plans;
+        if (!all.length) return toast("Aucun repas planifi\xE9");
+        if (!confirm(`Supprimer les ${all.length} repas planifi\xE9s (toutes les semaines) ? Vos recettes ne sont pas supprim\xE9es.`)) return;
+        try {
+          await db.delMany("meal_plans", all.map((p) => p.id));
+          toast("Planning vid\xE9");
+        } catch (err) {
+          toast(err.message, "err");
+        }
+      };
       $("#wprev", root).onclick = () => {
         weekStart = addDays(weekStart, -7);
         rerender();
@@ -2785,7 +2825,7 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
       const list = [...db.store.t.shopping_items].sort((a, b) => (a.shop || "").localeCompare(b.shop || "") || a.name.localeCompare(b.name, "fr"));
       const shops = [...new Set(list.map((i) => i.shop || "Supermarch\xE9"))];
       const checked = list.filter((i) => i.checked).length;
-      return `<div class="card glass"><div class="sectionhead"><h3 class="script">Liste de courses</h3><span><button class="btn small" id="reshop">Ranger la liste (fusion, sans sel/poivre)</button> ${checked ? `<button class="btn small" id="clearChecked">Retirer les ${checked} coch\xE9s</button>` : ""}</span></div>
+      return `<div class="card glass"><div class="sectionhead"><h3 class="script">Liste de courses</h3><span><button class="btn small" id="reshop">Ranger la liste (fusion, sans sel/poivre)</button> ${list.length ? '<button class="btn small danger" id="clearAll">Tout supprimer</button> ' : ""}${checked ? `<button class="btn small" id="clearChecked">Retirer les ${checked} coch\xE9s</button>` : ""}</span></div>
     <form id="shopForm" class="inlineform"><input name="name" placeholder="Ajouter un article\u2026" required><select name="shop"><option>March\xE9</option><option selected>Supermarch\xE9</option></select><button class="btn primary">Ajouter</button></form>
     ${shops.map((s) => `<h4>${s === "March\xE9" ? "" : ""} ${esc(s)}</h4>${list.filter((i) => (i.shop || "Supermarch\xE9") === s).map((i) => `<div class="shopitem ${i.checked ? "done" : ""}"><button class="tick" data-check="${i.id}" aria-label="Cocher">${i.checked ? "\u2713" : ""}</button><span class="grow">${esc(itemLabel(i))}${i.recipe_title ? `<small> \xB7 ${esc(i.recipe_title)}</small>` : ""}</span><button class="x" data-rm="${i.id}" aria-label="Supprimer">\xD7</button></div>`).join("")}`).join("") || '<div class="empty">La liste est vide.</div>'}</div>`;
     }
@@ -2813,6 +2853,13 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
           if (r.merged) t.push(`${r.merged} doublon${r.merged > 1 ? "s" : ""} fusionn\xE9${r.merged > 1 ? "s" : ""}`);
           if (r.moved) t.push(`${r.moved} reclass\xE9${r.moved > 1 ? "s" : ""}`);
           return toast(t.length ? t.join(" \xB7 ") : "La liste est d\xE9j\xE0 bien rang\xE9e");
+        }
+        if (e.target.id === "clearAll") {
+          if (confirm(`Supprimer les ${db.store.t.shopping_items.length} articles de la liste de courses ?`)) {
+            await db.delMany("shopping_items", db.store.t.shopping_items.map((i) => i.id));
+            toast("Liste de courses vid\xE9e");
+          }
+          return;
         }
         if (e.target.id === "clearChecked") for (const i of db.store.t.shopping_items.filter((i2) => i2.checked)) await db.del("shopping_items", i.id);
       };
@@ -3077,14 +3124,14 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
       maison: '<polygon points="30,98 150,98 150,200 30,200" fill="#f4ecd9"/><polygon points="150,98 190,112 190,200 150,200" fill="#dccfb2"/><polygon points="20,98 90,36 160,98" fill="#2d5b4e"/><polygon points="90,36 160,98 190,112 110,40" fill="#234a3f"/><polygon points="72,36 108,36 108,10 94,10" fill="#2d5b4e" opacity="0"/><rect x="48" y="124" width="26" height="34" rx="3" fill="#e8c76c"/><rect x="104" y="124" width="26" height="34" rx="3" fill="#e8c76c"/><polygon points="74,200 74,158 100,158 100,200" fill="#2d5b4e"/><polygon points="76,62 102,62 102,86 76,86" fill="#e8c76c"/>'
     };
     const TILES = [
-      ["courses", "Courses", "courses", "#c6edd8", "#8fc3a6"],
-      ["agenda", "Calendrier", "agenda", "#fcf0c8", "#f6cd8b"],
-      ["menus", "Planning", "menu", "#f3b3a4", "#e5806f"],
       ["recipes", "Recettes", "recettes", "#faf0b0", "#f4e08e"],
+      ["menus", "Planning", "menu", "#f3b3a4", "#e5806f"],
+      ["courses", "Courses", "courses", "#c6edd8", "#8fc3a6"],
       ["cellar", "Cave \xE0 vin", "cave", "#f1a7a0", "#ee7f72"],
-      ["music", "Playlists", "playlists", "#e1dcf6", "#aeb0ee"],
+      ["agenda", "Calendrier", "agenda", "#fcf0c8", "#f6cd8b"],
       ["news", "Actualit\xE9", "news", "#d6e9f8", "#9ec8e8"],
-      ["homebook", "Maison", "maison", "#cfe8e0", "#8fc5b5"]
+      ["homebook", "Maison", "maison", "#cfe8e0", "#8fc5b5"],
+      ["music", "Playlists", "playlists", "#e1dcf6", "#aeb0ee"]
     ];
     const home = {
       html(user) {
@@ -3248,14 +3295,14 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
     const { home, agenda, music, homebook } = __m.misc;
     const PAGES = {
       home: { icon: "", label: "Accueil", title: "Bonjour \xE0 tous", mod: home, tables: ["meal_plans", "family_events", "shopping_items", "recipes", "cellar_items"] },
-      cellar: { icon: "", label: "Cave & spiritueux", title: "Notre cave", mod: cellar, tables: ["cellar_items"] },
       recipes: { icon: "", label: "Recettes", title: "Le carnet de recettes", mod: recipes, tables: ["recipes"] },
       menus: { icon: "", label: "Planning de la semaine", title: "Le planning des repas", mod: menus, tables: ["meal_plans", "recipes"] },
       courses: { icon: "", label: "Liste de courses", title: "La liste de courses", mod: courses, tables: ["shopping_items"] },
-      news: { icon: "", label: "Actualit\xE9s", title: "L\u2019actualit\xE9 du jour", mod: news, tables: [] },
+      cellar: { icon: "", label: "Cave & spiritueux", title: "Notre cave", mod: cellar, tables: ["cellar_items"] },
       agenda: { icon: "", label: "Agenda", title: "L\u2019agenda familial", mod: agenda, tables: ["family_events"] },
-      music: { icon: "", label: "Playlists", title: "Nos playlists", mod: music, tables: ["playlists"] },
-      homebook: { icon: "", label: "Maison", title: "La maison", mod: homebook, tables: ["family_notes"] }
+      news: { icon: "", label: "Actualit\xE9s", title: "L\u2019actualit\xE9 du jour", mod: news, tables: [] },
+      homebook: { icon: "", label: "Maison", title: "La maison", mod: homebook, tables: ["family_notes"] },
+      music: { icon: "", label: "Playlists", title: "Nos playlists", mod: music, tables: ["playlists"] }
     };
     let page = "home";
     try {
