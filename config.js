@@ -4,3 +4,5 @@ window.SUPABASE_URL = "https://kjzmkelewfarpymybxge.supabase.co";
 window.SUPABASE_ANON_KEY = "sb_publishable_PYtDGGML72Y-ljW8gyhlNQ_-_5TGzec";
 window.FN_MARMITON = "smart-endpoint";
 window.FN_LABELS = "nom-de-la-fonction";
+window.FN_MARMITON = "smart-endpoint";
+window.FN_LABELS = "swift-api";
