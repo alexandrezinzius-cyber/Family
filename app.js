@@ -844,7 +844,7 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
       if (!raw || /:$/.test(raw)) return [];
       return splitLine(raw.replace(/’/g, "'")).map(parseOne).filter((p) => p.name).map((p) => __spreadProps(__spreadValues({}, p), { skip: isSkippedName(p.name) }));
     }
-    const DROP = new Set("belle bonne petit petite petits petites grand grande gros grosse jeune jeunes moyen moyenne taille entier entiere frais fraiche fraiches fraichement cru crue crus cuit cuite hache hachee haches hachees cisele ciselee ciselees emince eminee eminees rape rapee rapes pele pelee peles coupe coupee bien mur mure mures bio biologique extra quelque quelques un une".split(" "));
+    const DROP = new Set("fait faite belle bonne petit petite petits petites grand grande gros grosse jeune jeunes moyen moyenne taille entier entiere frais fraiche fraiches fraichement cru crue crus cuit cuite hache hachee haches hachees cisele ciselee ciselees emince eminee eminees rape rapee rapes pele pelee peles coupe coupee bien mur mure mures bio biologique extra quelque quelques un une".split(" "));
     const RULES = [
       [/^huile de olive/, "huile d\u2019olive"],
       [/^huile( de cuisson| vegetal)?$/, "huile"],
@@ -909,7 +909,7 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
       [/^spaghetti/, "spaghetti"],
       [/^saucisse$/, "saucisse"]
     ];
-    const sing = (w) => w.length > 3 && /[s]$/.test(w) && !/(?:ss|us|is|ois|ais)$/.test(w) && !/^(?:mais|bras|pois|riz|jus|anis|cassis|brebis|couscous|tapas|noix|gruyere)$/.test(w) ? w.slice(0, -1) : w;
+    const sing = (w) => w === "brocolis" ? "brocoli" : /^choux/.test(w) ? sing(w.replace(/^choux/, "chou")) : w.length > 3 && /[s]$/.test(w) && !/(?:ss|us|is|ois|ais)$/.test(w) && !/^(?:mais|bras|pois|riz|jus|anis|cassis|brebis|couscous|tapas|noix|gruyere)$/.test(w) ? w.slice(0, -1) : w;
     function canonical(name) {
       if (/petits? pois/i.test(norm(name))) return { display: "petits pois", key: "petit pois" };
       let s = String(name).replace(/’/g, "'").replace(/[\u{1F000}-\u{1FFFF}\u{2600}-\u{27BF}️]/gu, " ");
@@ -1029,15 +1029,17 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
       return count;
     }
     const addIngredients = (recipe) => addLines(ingredientLines(recipe.ingredients), recipe.title);
-    async function tidyList() {
+    async function tidyList({ auto = false } = {}) {
       const rows = db.store.t.shopping_items.filter((i) => !i.checked);
       let removed = 0, merged = 0, moved = 0;
       const groups = [];
       for (const row of rows) {
         const p = parseLine(row.name);
         if (!p || p.skip) {
-          await db.del("shopping_items", row.id);
-          removed++;
+          if (!auto) {
+            await db.del("shopping_items", row.id);
+            removed++;
+          }
           continue;
         }
         const c = canonical(row.name), g = groups.find((x) => x.key === c.key);
@@ -1480,6 +1482,131 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
     }
     return { ratingHTML, reviewsHTML, ideaCardHTML, saveIdeaAsRecipe, openIdea, openMarmitonSearch };
   })();
+  __m.vivino = (() => {
+    const { norm } = __m.util;
+    function parseCSV(text) {
+      const t = String(text || "").replace(/^﻿/, "");
+      const first = t.split(/\r?\n/)[0] || "";
+      const sep = (first.match(/;/g) || []).length > (first.match(/,/g) || []).length ? ";" : (first.match(/\t/g) || []).length > (first.match(/,/g) || []).length ? "	" : ",";
+      const rows = [];
+      let row = [], cur = "", q = false;
+      for (let i = 0; i < t.length; i++) {
+        const c = t[i];
+        if (q) {
+          if (c === '"') {
+            if (t[i + 1] === '"') {
+              cur += '"';
+              i++;
+            } else q = false;
+          } else cur += c;
+        } else if (c === '"') q = true;
+        else if (c === sep) {
+          row.push(cur);
+          cur = "";
+        } else if (c === "\n" || c === "\r") {
+          if (c === "\r" && t[i + 1] === "\n") i++;
+          row.push(cur);
+          cur = "";
+          if (row.some((x) => x !== "")) rows.push(row);
+          row = [];
+        } else cur += c;
+      }
+      row.push(cur);
+      if (row.some((x) => x !== "")) rows.push(row);
+      if (!rows.length) return [];
+      const head = rows[0].map((h) => norm(h).replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim());
+      return rows.slice(1).map((r) => {
+        const o = {};
+        head.forEach((h, i) => {
+          o[h] = (r[i] || "").trim();
+        });
+        return o;
+      });
+    }
+    const pickField = (o, names) => {
+      for (const n of names) {
+        const k = Object.keys(o).find((h) => h === n);
+        if (k && o[k] !== "") return o[k];
+      }
+      for (const n of names) {
+        const k = Object.keys(o).find((h) => h.indexOf(n) >= 0);
+        if (k && o[k] !== "") return o[k];
+      }
+      return "";
+    };
+    const vivinoId = (url) => {
+      const m = String(url || "").match(/(?:\/wines\/|\/w\/)(\d+)/);
+      return m ? m[1] : "";
+    };
+    const numOf = (v) => {
+      const n = parseFloat(String(v || "").replace(",", "."));
+      return Number.isFinite(n) ? n : null;
+    };
+    const keyOf = (producer, name, vintage) => norm([producer, name, vintage || ""].join(" ")).replace(/[^a-z0-9]/g, "");
+    function readRows(csvRows) {
+      return csvRows.map((o) => {
+        const url = pickField(o, ["link to wine", "wine url", "vivino url", "wine link", "url", "link"]);
+        const name = pickField(o, ["wine name", "wine", "name", "nom"]);
+        return {
+          producer: pickField(o, ["winery", "producer", "producteur", "domaine"]),
+          name,
+          url,
+          id: vivinoId(url),
+          vintage: numOf(pickField(o, ["vintage", "year", "millesime"])),
+          qty: numOf(pickField(o, ["quantity", "qty", "bottles", "nombre", "quantite"])),
+          rating: numOf(pickField(o, ["your rating", "user rating", "my rating", "rating", "note"])),
+          comment: pickField(o, ["your review", "review", "comment", "tasting note", "commentaire"]),
+          type: pickField(o, ["wine type", "type", "style"]),
+          country: pickField(o, ["country", "pays"]),
+          region: pickField(o, ["region", "region name"]),
+          price: numOf(pickField(o, ["price", "purchase price", "prix"])),
+          drink: pickField(o, ["drink", "drinking window", "apogee"])
+        };
+      }).filter((r) => r.name);
+    }
+    const TYPE_MAP = { red: "Rouge", white: "Blanc", rose: "Ros\xE9", sparkling: "P\xE9tillant", rouge: "Rouge", blanc: "Blanc", dessert: "Liquoreux", fortified: "Fortifi\xE9" };
+    const noteOf = (r) => ["Vivino" + (r.rating ? ` : \u2605 ${String(r.rating).replace(".", ",")}/5` : ""), r.comment].filter(Boolean).join(" \u2014 ");
+    function planSync(rows, existing, { cellarFile = true } = {}) {
+      const byId = /* @__PURE__ */ new Map(), byKey = /* @__PURE__ */ new Map();
+      existing.forEach((b) => {
+        const id = vivinoId(b.vivino_url);
+        if (id) byId.set(id, b);
+        byKey.set(keyOf(b.producer, b.name, b.vintage), b);
+      });
+      const add = [], update = [], seen = /* @__PURE__ */ new Set();
+      let same = 0, unmatched = 0;
+      for (const r of rows) {
+        const b = r.id && byId.get(r.id) || byKey.get(keyOf(r.producer, r.name, r.vintage));
+        if (!b) {
+          if (!cellarFile || !(r.qty > 0)) {
+            unmatched++;
+            continue;
+          }
+          add.push({ name: r.name, producer: r.producer || null, vintage: r.vintage || null, country: r.country || null, region: r.region || null, wine_type: TYPE_MAP[norm(r.type)] || (r.type ? r.type : null), category: "Vin", bottle_size: "75 cl", quantity: r.qty, vivino_url: r.url || null, location_kind: "placard", place_label: "\xC0 ranger", purchase_price: r.price || null, drinking_window: r.drink || null, notes: r.rating || r.comment ? noteOf(r) : null, external_id: r.id ? "vivino-" + r.id : null });
+          continue;
+        }
+        seen.add(b.id);
+        const patch = {};
+        if (cellarFile && r.qty > 0 && Number(b.quantity) !== r.qty) patch.quantity = r.qty;
+        if (r.rating || r.comment) {
+          const line = noteOf(r), old = String(b.notes || "").split("\n").filter((l) => !/^Vivino\b/.test(l.trim())).join("\n").trim();
+          const nn = [old, line].filter(Boolean).join("\n");
+          if (nn !== (b.notes || "")) patch.notes = nn;
+        }
+        if (r.url && !b.vivino_url) patch.vivino_url = r.url;
+        if (r.drink && !b.drinking_window) patch.drinking_window = r.drink;
+        if (Object.keys(patch).length) update.push({ id: b.id, name: b.name, patch });
+        else same++;
+      }
+      const missing = cellarFile ? existing.filter((b) => !seen.has(b.id)).length : 0;
+      return { add, update, same, unmatched, missing };
+    }
+    const isCellarFile = (csvRows) => {
+      const h = csvRows[0] ? Object.keys(csvRows[0]).join("|") : "";
+      return /quantity|qty|bottles|quantite/.test(h);
+    };
+    return { parseCSV, vivinoId, keyOf, readRows, planSync, isCellarFile };
+  })();
   __m.recipes = (() => {
     const { $, $$, esc, toast, openModal, closeModal, formDialog, compressImage, ymd, DAYS } = __m.util;
     const db = __m.db;
@@ -1672,6 +1799,7 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
     const { openIdea } = __m.ideas;
     const { randomMeal, randomCocktail, PAIRING, SPIRIT_MAP } = __m.ext;
     const { importCellar } = __m.seed;
+    const { parseCSV, readRows, planSync, isCellarFile } = __m.vivino;
     const TYPES = ["Rouge", "Blanc", "Ros\xE9", "Effervescent", "Liquoreux", "Fortifi\xE9", "Spiritueux"];
     const CATS = ["Vin", "Champagne", "Cr\xE9mant", "Whisky", "Rhum", "Gin", "Cognac", "Vodka", "Tequila", "Liqueur", "Autre"];
     const KIND_LABEL = { cave: "Cave \xE0 vin", placard: "Placard", exterieur: "Ext\xE9rieur" };
@@ -1888,7 +2016,7 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
       return `<div class="stats">${stat(sum(all), "bouteilles")}${stat(inCave().filter((b) => b.slot).length + "/28", "cave \xE0 vin")}${stat(sum(all.filter((b) => b.location_kind === "placard")), "en placard")}${stat(sum(all.filter((b) => b.location_kind === "exterieur")), "\xE0 l\u2019ext\xE9rieur")}${stat(totalValue() ? totalValue().toLocaleString("fr-FR") + " \u20AC" : "\u2014", "valeur estim\xE9e")}</div>
   ${imp}
   <div class="bar"><div class="seg" id="cseg">${[["cave", "Cave \xE0 vin"], ["placard", "Placards"], ["exterieur", "Ext\xE9rieur"], ["tout", "Inventaire"]].map(([k, l]) => `<button data-v="${k}" class="${view === k ? "on" : ""}">${l}</button>`).join("")}</div>
-   <span class="grow"></span><button class="btn" id="scanBtn">Scanner une bouteille</button><button class="btn" id="labelBtn">\xC9tiquettes</button><button class="btn" id="priceBtn">Prix des bouteilles</button><button class="btn" id="cocktailBtn">Id\xE9e de cocktail</button><button class="btn primary" data-add="${view === "placard" || view === "exterieur" ? view : "cave"}">\uFF0B Bouteille</button></div>
+   <span class="grow"></span><button class="btn" id="scanBtn">Scanner une bouteille</button><button class="btn" id="vivSync">Mettre \xE0 jour depuis Vivino</button><button class="btn" id="labelBtn">\xC9tiquettes</button><button class="btn" id="priceBtn">Prix des bouteilles</button><button class="btn" id="cocktailBtn">Id\xE9e de cocktail</button><button class="btn primary" data-add="${view === "placard" || view === "exterieur" ? view : "cave"}">\uFF0B Bouteille</button></div>
   <div id="cview">${view === "cave" ? caveView() : view === "tout" ? inventoryView() : groupedList(view)}</div>`;
     }
     function bottleFields(b) {
@@ -2034,6 +2162,69 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
         }
       });
     }
+    const readText = (f) => new Promise((res, rej) => {
+      const r = new FileReader();
+      r.onload = () => res(String(r.result));
+      r.onerror = () => rej(new Error("lecture impossible"));
+      r.readAsText(f);
+    });
+    function vivinoSync() {
+      let plan = null;
+      openModal(`<div class="detail"><h2 class="script">Mettre \xE0 jour depuis Vivino</h2>
+    <p class="muted">Vivino ne permet pas de relier un compte \xE0 un autre site : on utilise ses exports. Dans l\u2019application Vivino, ouvrez votre cave puis \xAB Exporter la cave \xBB (fichier CSV), et si vous voulez vos notes et commentaires, demandez \xAB Exporter mes donn\xE9es \xBB dans les r\xE9glages du compte, puis d\xE9zippez le fichier re\xE7u. Choisissez ensuite ici les fichiers <b>.csv</b> (vous pouvez en s\xE9lectionner plusieurs).</p>
+    <input type="file" id="vivFiles" accept=".csv,text/csv,text/plain" multiple>
+    <div id="vivOut" class="muted small"></div>
+    <div class="formactions"><button class="btn ghost" data-close>Fermer</button><span class="grow"></span><button class="btn primary" id="vivApply" disabled>Appliquer</button></div></div>`, {
+        wide: true,
+        onMount: (root) => {
+          $("[data-close]", root).onclick = closeModal;
+          $("#vivFiles", root).onchange = async (e) => {
+            const out = $("#vivOut", root), apply = $("#vivApply", root);
+            out.textContent = "Lecture\u2026";
+            apply.disabled = true;
+            plan = { add: [], update: [], same: 0, unmatched: 0, missing: 0 };
+            const msgs = [];
+            try {
+              for (const f of [...e.target.files]) {
+                const csv = parseCSV(await readText(f)), rows = readRows(csv), cellarFile = isCellarFile(csv);
+                if (!rows.length) {
+                  msgs.push(`${f.name} : aucune bouteille reconnue (colonnes : ${csv[0] ? Object.keys(csv[0]).slice(0, 8).join(", ") : "vide"})`);
+                  continue;
+                }
+                const p = planSync(rows, items().concat(plan.add.map((a) => __spreadProps(__spreadValues({}, a), { id: "new-" + a.external_id }))), { cellarFile });
+                plan.add = plan.add.concat(p.add);
+                plan.update = plan.update.concat(p.update);
+                plan.same += p.same;
+                plan.unmatched += p.unmatched;
+                if (cellarFile) plan.missing = p.missing;
+                msgs.push(`${f.name} : ${rows.length} lignes (${cellarFile ? "cave" : "notes / commentaires"})`);
+              }
+              msgs.push(`<b>${plan.add.length}</b> nouvelle${plan.add.length > 1 ? "s" : ""} bouteille${plan.add.length > 1 ? "s" : ""} (rang\xE9es dans \xAB \xC0 ranger \xBB), <b>${plan.update.length}</b> mise${plan.update.length > 1 ? "s" : ""} \xE0 jour, ${plan.same} inchang\xE9e${plan.same > 1 ? "s" : ""}${plan.missing ? `, ${plan.missing} bouteille${plan.missing > 1 ? "s" : ""} de votre cave absente${plan.missing > 1 ? "s" : ""} de l\u2019export (rien n\u2019est supprim\xE9)` : ""}.`);
+              out.innerHTML = msgs.map((m) => `<div>${/^<b>/.test(m) ? m : esc(m)}</div>`).join("");
+              apply.disabled = !(plan.add.length || plan.update.length);
+            } catch (err) {
+              out.textContent = "Erreur : " + err.message;
+            }
+          };
+          $("#vivApply", root).onclick = async (e) => {
+            e.target.disabled = true;
+            try {
+              if (plan.add.length) await db.addMany("cellar_items", plan.add.map((a) => {
+                const r = __spreadValues({}, a);
+                if (!r.external_id) delete r.external_id;
+                return r;
+              }));
+              for (const u of plan.update) await db.patch("cellar_items", u.id, u.patch);
+              toast(`${plan.add.length} ajout\xE9e${plan.add.length > 1 ? "s" : ""}, ${plan.update.length} mise${plan.update.length > 1 ? "s" : ""} \xE0 jour`);
+              closeModal();
+            } catch (err) {
+              toast(err.message, "err");
+              e.target.disabled = false;
+            }
+          };
+        }
+      });
+    }
     const priceKey = (b) => [b.producer, b.name, b.vintage, b.bottle_size].join("|");
     const searchUrl = (b) => "https://www.google.com/search?tbm=shop&q=" + encodeURIComponent(["vin", b.producer, b.name, b.vintage].filter(Boolean).join(" "));
     function priceSheet() {
@@ -2139,6 +2330,7 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
         }
       };
       $("#priceBtn", root).onclick = priceSheet;
+      $("#vivSync", root).onclick = vivinoSync;
       $("#scanBtn", root).onclick = () => editBottle({}, { location_kind: view === "placard" || view === "exterieur" ? view : "cave" }, { scan: true });
       $("#labelBtn", root).onclick = labelsSheet;
       $("#cocktailBtn", root).onclick = () => {
@@ -2411,7 +2603,15 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
     <form id="shopForm" class="inlineform"><input name="name" placeholder="Ajouter un article\u2026" required><select name="shop"><option>March\xE9</option><option selected>Supermarch\xE9</option></select><button class="btn primary">Ajouter</button></form>
     ${shops.map((s) => `<h4>${s === "March\xE9" ? "" : ""} ${esc(s)}</h4>${list.filter((i) => (i.shop || "Supermarch\xE9") === s).map((i) => `<div class="shopitem ${i.checked ? "done" : ""}"><button class="tick" data-check="${i.id}" aria-label="Cocher">${i.checked ? "\u2713" : ""}</button><span class="grow">${esc(itemLabel(i))}${i.recipe_title ? `<small> \xB7 ${esc(i.recipe_title)}</small>` : ""}</span><button class="x" data-rm="${i.id}" aria-label="Supprimer">\xD7</button></div>`).join("")}`).join("") || '<div class="empty">La liste est vide.</div>'}</div>`;
     }
+    let autoDone = false;
     function bind(root, rerender, go) {
+      if (!autoDone) {
+        autoDone = true;
+        tidyList({ auto: true }).then((r) => {
+          if (r.merged) toast(`${r.merged} doublon${r.merged > 1 ? "s" : ""} fusionn\xE9${r.merged > 1 ? "s" : ""} dans la liste`);
+        }).catch(() => {
+        });
+      }
       root.onclick = async (e) => {
         const c = e.target.closest("[data-check]");
         if (c) {
