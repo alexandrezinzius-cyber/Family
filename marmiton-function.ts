@@ -42,6 +42,23 @@ function steps(r: any): string {
   return walk(r.recipeInstructions).filter(Boolean).join('\n');
 }
 
+// commentaires des internautes : d'abord le balisage JSON-LD (review), sinon les blocs « avis » de la page
+function reviewsOf(r: any, html: string) {
+  const out: { author: string; rating: number | null; text: string; date: string }[] = [];
+  for (const v of (Array.isArray(r.review) ? r.review : r.review ? [r.review] : []) as any[]) {
+    const text = dec(v?.reviewBody || v?.description || '');
+    if (text) out.push({ author: dec(v?.author?.name || v?.author || ''), rating: Number(v?.reviewRating?.ratingValue) || null, text, date: String(v?.datePublished || '').slice(0, 10) });
+  }
+  if (!out.length) {
+    for (const m of html.matchAll(/<(?:div|p|span)[^>]+class=["'][^"']*(?:review|comment|avis)[^"']*(?:content|text|body)[^"']*["'][^>]*>([\s\S]*?)<\/(?:div|p|span)>/gi)) {
+      const text = dec(m[1].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' '));
+      if (text.length > 25 && !out.some(o => o.text === text)) out.push({ author: '', rating: null, text, date: '' });
+      if (out.length >= 8) break;
+    }
+  }
+  return out.slice(0, 8);
+}
+
 async function fetchRecipe(url: string) {
   const html = await page(url);
   const r = jsonLd(html).find(isRecipe);
@@ -51,15 +68,24 @@ async function fetchRecipe(url: string) {
   return {
     kind: 'recipe', title: dec(r.name), category: 'Marmiton', area: dec([].concat(r.recipeCategory || []).join(' · ')),
     ingredients: (r.recipeIngredient || []).map(dec).join('\n'), instructions: steps(r), photo_url: img(r.image),
-    source_url: url, id: url, lang: 'fr', source: 'Marmiton', rating: Number.isFinite(rating) && rating > 0 ? Math.round(rating * 10) / 10 : null, ratingCount: count || null,
+    source_url: url, id: url, lang: 'fr', source: 'Marmiton', reviews: reviewsOf(r, html), rating: Number.isFinite(rating) && rating > 0 ? Math.round(rating * 10) / 10 : null, ratingCount: count || null,
   };
 }
 
 Deno.serve(async req => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
   try {
-    const { q, type, exclude = [], minRating = 4 } = await req.json();
+    const { q, type, exclude = [], minRating = 4, mode } = await req.json();
     if (!q) return json({ error: 'requête vide' }, 400);
+    if (mode === 'search') { // recherche libre : jusqu'à 8 fiches avec note et commentaires
+      const html = await page(`${BASE}/recettes/recherche.aspx?aqt=${encodeURIComponent(q)}${type ? '&type=' + encodeURIComponent(type) : ''}`);
+      const links = [...new Set([...html.matchAll(/href=["'](\/recettes\/recette_[a-z0-9\-]+_\d+\.aspx)["']/gi)].map(m => BASE + m[1]))].slice(0, 8);
+      if (!links.length) return json({ error: 'aucune recette trouvée' }, 404);
+      const got = (await Promise.allSettled(links.map(fetchRecipe))).flatMap(r => (r.status === 'fulfilled' ? [r.value] : []));
+      if (!got.length) return json({ error: 'fiches illisibles' }, 502);
+      got.sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0));
+      return json({ results: got });
+    }
     const run = async (withType: boolean) => {
       const html = await page(`${BASE}/recettes/recherche.aspx?aqt=${encodeURIComponent(q)}${withType && type ? '&type=' + encodeURIComponent(type) : ''}`);
       const links = [...new Set([...html.matchAll(/href=["'](\/recettes\/recette_[a-z0-9\-]+_\d+\.aspx)["']/gi)].map(m => BASE + m[1]))].filter(u => !exclude.includes(u));

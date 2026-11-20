@@ -623,6 +623,20 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
         throw new Error(`fonction : ${fnErr} \xB7 acc\xE8s direct : ${err.message}`);
       }
     }
+    async function marmitonSearch(q, type) {
+      const { data, error } = await Promise.race([db.store.sb.functions.invoke(window.FN_MARMITON || "marmiton", { body: { q, type: type || void 0, mode: "search" } }), new Promise((_, rej) => setTimeout(() => rej(new Error("pas de r\xE9ponse en 40 s")), 4e4))]);
+      if (error) {
+        let msg = error.message || "erreur";
+        try {
+          const b = error.context && await error.context.json();
+          if (b && b.error) msg = b.error;
+        } catch (x) {
+        }
+        throw new Error(msg);
+      }
+      if (data && data.results) return data.results;
+      throw new Error(data && data.error || "r\xE9ponse vide");
+    }
     const FALLBACK = (err) => `Marmiton indisponible (${String(err && err.message || err || "erreur").slice(0, 140)}) : id\xE9e issue de TheMealDB.`;
     async function randomMeal(cats = MEAL_CATS["Plat"], exclude = [], opts = {}) {
       const cat = pick(cats);
@@ -703,7 +717,7 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
         return idea;
       }
     }
-    return { MEAL_CATS, PAIRING, SPIRIT_MAP, randomMeal, randomCocktail, translateIdea };
+    return { MEAL_CATS, PAIRING, SPIRIT_MAP, marmitonSearch, randomMeal, randomCocktail, translateIdea };
   })();
   __m.ingredients = (() => {
     const { norm } = __m.util;
@@ -943,6 +957,7 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
     };
     function formatQty(qty, fam, u) {
       if (qty === null || qty === void 0) return "";
+      if (fam === "kg") return `${fmtNum(Math.round(qty * 100) / 100)} kg`;
       if (fam === "g") return qty >= 1e3 ? `${fmtNum(qty / 1e3)} kg` : `${fmtNum(qty)} g`;
       if (fam === "ml") return qty >= 1e3 ? `${fmtNum(qty / 1e3)} l` : qty >= 10 ? `${fmtNum(qty / 10)} cl` : `${fmtNum(qty)} ml`;
       if (fam === "cas") return `${fmtFrac(qty)} c. \xE0 s.`;
@@ -952,11 +967,24 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
     }
     const LIQUID = /^(huile|lait|creme|vinaigre|vin |vin$|bouillon|jus |sauce soja|eau|cafe|biere|cidre)/;
     const TO_ML = { cas: 15, cac: 5, verre: 200, tasse: 240, filet: 10 };
+    const VEG = /^(carotte|oignon|echalote|pomme de terre|patate|tomate|courgette|aubergine|poivron|poireau|champignon|epinard|concombre|navet|betterave|chou|brocoli|celeri|fenouil|butternut|potiron|courge|haricot vert|radis|salade|endive|avocat|artichaut|petit pois|asperge|panais|topinambour|citrouille|mais)/;
+    const NOT_VEG = /(concasse|seche|coulis|puree|concentre|sauce|pulpe|poudre|conserve|jus|confit|cornichon|chips|chapelure|boite)/;
+    const PIECE_KG = { carotte: 0.1, oignon: 0.12, echalote: 0.04, "pomme de terre": 0.15, patate: 0.3, tomate: 0.12, courgette: 0.25, aubergine: 0.3, poivron: 0.2, poireau: 0.2, champignon: 0.025, concombre: 0.35, navet: 0.15, betterave: 0.15, chou: 1, brocoli: 0.4, celeri: 0.5, fenouil: 0.3, butternut: 1, potiron: 1.5, courge: 1, radis: 0.015, salade: 0.25, endive: 0.1, avocat: 0.2, artichaut: 0.25, panais: 0.15, topinambour: 0.1 };
+    const isVeg = (key) => VEG.test(key) && !NOT_VEG.test(key);
     function combine(list, key) {
-      const liquid = LIQUID.test(key), out = {};
+      const liquid = LIQUID.test(key), veg = isVeg(key), out = {};
       list.forEach((a) => {
         let { qty, fam } = a;
-        if (liquid && TO_ML[fam] && !(fam === "filet" && qty > 3)) {
+        if (veg) {
+          const per = Object.keys(PIECE_KG).find((k) => key.indexOf(k) === 0);
+          if (fam === "g") {
+            qty /= 1e3;
+            fam = "kg";
+          } else if (fam === "n" && per) {
+            qty *= PIECE_KG[per];
+            fam = "kg";
+          }
+        } else if (liquid && TO_ML[fam] && !(fam === "filet" && qty > 3)) {
           qty *= TO_ML[fam];
           fam = "ml";
         } else if (liquid && fam === "g") fam = "ml";
@@ -1035,21 +1063,28 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
     }
     const VOWEL = /^(?:[aeiouyàâäéèêëîïôöùûüœ]|huile|herbe|huitre|huître)/i;
     const COUNTABLE = /^(œuf|courgette|carotte|oignon|tomate|pomme de terre|pomme|poire|poivron|aubergine|citron|orange|échalote|champignon|banane|concombre|navet|avocat|endive|kiwi|clémentine|patate|tranche|filet|gousse|cuisse|escalope|saucisse|tortilla|crêpe|poireau|artichaut|betterave|figue|pêche|abricot|fraise|brin|feuille|bûche|pâte(?= (?:brisée|feuilletée|sablée)))\b/i;
-    const VEG_KG = /^(pomme de terre|carotte|tomate|courgette|oignon|aubergine|poireau|champignon|patate|navet|betterave|pomme|poire)\b/i;
+    const VEG_KG = /^(pomme de terre|carotte|tomate|courgette|oignon|aubergine|poireau|champignon|patate|navet|betterave|pomme|poire|artichaut|concombre|endive|avocat|échalote|poivron|radis)\b/i;
     const plural = (name, qty, fam) => {
       const m = name.match(COUNTABLE);
       if (!m) return name;
-      const need = fam === "n" && qty > 1 || fam === "g" && qty >= 250 && VEG_KG.test(name);
+      const need = fam === "n" && qty > 1 || fam === "g" && qty > 0 && VEG_KG.test(name);
       if (!need) return name;
       const head = m[0], rest = name.slice(head.length);
       const adj = (r) => r.replace(/\b(rouge|vert|jaune|blanc|noir|douce|violette|cerise|séchée|brisée|feuilletée|sablée|fumée|confit)\b/gi, (w) => /s$/i.test(w) ? w : w + "s");
       if (/^pomme de terre/i.test(head)) return "pommes de terre" + rest;
       return (/[sxz]$/i.test(head) ? head : head + "s") + adj(rest);
     };
-    const TYPO = [[/\bcarrotes?\b/gi, (m) => /s$/i.test(m) ? "carottes" : "carotte"], [/\bsauss?ices?\b/gi, (m) => /s$/i.test(m) ? "saucisses" : "saucisse"], [/\bsaussice/gi, "saucisse"], [/\bspagh?etthi/gi, "spaghetti"], [/\bbou?lghour\b/gi, "boulgour"], [/\bcebettes?\b/gi, "ciboule"], [/\bpari\b/gi, "Paris"], [/\bpoigne\b/gi, "poign\xE9e"], [/\brapé(s?)\b/gi, "r\xE2p\xE9$1"], [/\bpinc\.?(?=\s)/gi, "pinc\xE9e"], [/\btran\.(?=\s)/gi, "tranche"], [/\bpommes? de terres?\b/gi, (m) => /^pommes/i.test(m) ? "pommes de terre" : "pomme de terre"], [/\boeufs?\b/gi, (m) => /s$/i.test(m) ? "\u0153ufs" : "\u0153uf"], [/\bboeuf\b/gi, "b\u0153uf"], [/\blegumes?\b/gi, (m) => /s$/i.test(m) ? "l\xE9gumes" : "l\xE9gume"], [/\bherbes? de provence\b/gi, "herbes de Provence"], [/\bcreme\b/gi, "cr\xE8me"], [/\bpate\b/gi, "p\xE2te"], [/\bsouple\b/gi, "souple"]];
+    const TYPO = [[/\bsauss?ices?\b/gi, (m) => /s$/i.test(m) ? "saucisses" : "saucisse"], [/\bsaussice/gi, "saucisse"], [/\bspagh?etthi/gi, "spaghetti"], [/\bbou?lghour\b/gi, "boulgour"], [/\bcebettes?(?![A-Za-zÀ-ÿ])/gi, "c\xE9bette"], [/\bpari\b/gi, "Paris"], [/\bpoigne\b/gi, "poign\xE9e"], [/(^|[^A-Za-zÀ-ÿ])rap[ée](s?)(?![A-Za-zÀ-ÿ])/gi, "$1r\xE2p\xE9$2"], [/(^|[^A-Za-zÀ-ÿ])s[èe]ch[ée](e?s?)(?![A-Za-zÀ-ÿ])/gi, "$1s\xE9ch\xE9$2"], [/(^|[^A-Za-zÀ-ÿ])pinc[ée](?![A-Za-zÀ-ÿ])/gi, "$1pinc\xE9e"], [/(^|[^A-Za-zÀ-ÿ])bou\.?(?=\s)/gi, "$1bouquet"], [/(^|[^A-Za-zÀ-ÿ])carr?ott?es?(?![A-Za-zÀ-ÿ])/gi, (m, a) => a + (/s$/i.test(m) ? "carottes" : "carotte")], [/\bpinc\.?(?=\s)/gi, "pinc\xE9e"], [/\btran\.(?=\s)/gi, "tranche"], [/\bpommes? de terres?\b/gi, (m) => /^pommes/i.test(m) ? "pommes de terre" : "pomme de terre"], [/\boeufs?\b/gi, (m) => /s$/i.test(m) ? "\u0153ufs" : "\u0153uf"], [/\bboeuf\b/gi, "b\u0153uf"], [/bouillon de legumes?(?![A-Za-zÀ-ÿ])/gi, "bouillon de l\xE9gumes"], [/tomates? s[èée]ch[ée]e?s?(?![A-Za-zÀ-ÿ])/gi, (m) => /s$/i.test(m) ? "tomates s\xE9ch\xE9es" : "tomate s\xE9ch\xE9e"], [/\blegumes?\b/gi, (m) => /s$/i.test(m) ? "l\xE9gumes" : "l\xE9gume"], [/\bherbes? de provence\b/gi, "herbes de Provence"], [/\bcreme\b/gi, "cr\xE8me"], [/\bpate\b/gi, "p\xE2te"], [/\bsouple\b/gi, "souple"]];
     const SPOON_S = /\b(?:c\.?\s?à\.?\s?s\b\.?|c\.?\s?a\.?\s?s\b\.?|c\.à\.s\.?|cs\b\.?|c\.s\b\.?|cuill?[èe]res?(?:\(s\))?\.?\s+à\s+soupe|cuill?[èe]re?\.?\s+à\s+s\b\.?|cuil\.?\s+à\s+soupe|c\.?\s+à\s+soupe|tbsp)/gi;
     const SPOON_C = /\b(?:c\.?\s?à\.?\s?c\b\.?|c\.?\s?a\.?\s?c\b\.?|c\.à\.c\.?|cc\b\.?|c\.c\b\.?|càc\b|cuill?[èe]res?(?:\(s\))?\.?\s+à\s+caf[ée]|cuil\.?\s+à\s+caf[ée]|c\.?\s+à\s+caf[ée]|tsp)/gi;
     const FRAC = { "1/2": "\xBD", "1/4": "\xBC", "3/4": "\xBE", "1/3": "\u2153", "2/3": "\u2154", "0.5": "\xBD", "0,5": "\xBD", "0.25": "\xBC", "0,25": "\xBC", "0.75": "\xBE" };
+    const fixAdj = (w, pl) => {
+      const l = w.toLowerCase();
+      let b = l.replace(/^sèch/, "s\xE9ch").replace(/s$/, "");
+      if (/^(séché|concassé)$/.test(b)) b += "e";
+      if (/^(émincé)$/.test(b)) b += pl ? "" : "";
+      return pl ? /^(?:émincé)$/.test(b) ? b + "s" : b + "s" : b;
+    };
     const num = (t) => parseFloat(String(t).replace(",", "."));
     function harmonizeLine(line) {
       let t = String(line || "").replace(/[\u{1F000}-\u{1FFFF}\u{2600}-\u{27BF}️‍]/gu, " ").replace(/\s+/g, " ").replace(/^[\s\-•*·–]+/, "").trim();
@@ -1057,7 +1092,16 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
       t = t.replace(/(\w)[’‘ʼ´`'](?=\w)/g, "$1\u2019");
       for (const [re, to] of TYPO) t = t.replace(re, to);
       t = t.replace(SPOON_S, "c. \xE0 s.").replace(SPOON_C, "c. \xE0 c.").replace(/c\. à (s|c)\.\s*\./g, "c. \xE0 $1.").replace(/(c\. à s\.) [Ss]oupe\b/, "$1");
-      t = t.replace(/(\d)\s*(kg|g|gr|grammes?|mg)\b\.?/gi, (m2, n, u) => `${n} ${/^kg$/i.test(u) ? "kg" : /^mg$/i.test(u) ? "mg" : "g"}`);
+      t = t.replace(/^(\d+)\.(\d+)(?=\s)/, "$1,$2");
+      t = t.replace(/(\d+(?:[.,]\d+)?)\s*(kg|g|gr|grammes?|mg)\b\.?/gi, (m2, n, u) => {
+        let v = num(n), un = /^kg$/i.test(u) ? "kg" : /^mg$/i.test(u) ? "mg" : "g";
+        if (un === "g" && v >= 1e3) {
+          v /= 1e3;
+          un = "kg";
+          return `${String(Math.round(v * 100) / 100).replace(".", ",")} kg`;
+        }
+        return `${n.replace(".", ",")} ${un}`;
+      });
       t = t.replace(/(\d+(?:[.,]\d+)?|\d+\/\d+|[½¼¾⅓⅔])\s*(ml|cl|dl|l|litres?)\b\.?/gi, (m2, n, u) => {
         var _a;
         const v = (_a = { "\xBD": 0.5, "\xBC": 0.25, "\xBE": 0.75, "\u2153": 1 / 3, "\u2154": 2 / 3 }[n]) != null ? _a : n.includes("/") ? n.split("/")[0] / n.split("/")[1] : num(n);
@@ -1067,15 +1111,38 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
       t = t.replace(/(^|\s)(\d+)\s*(1\/2|1\/4|3\/4)(?=\s)/g, (m2, a, w, f) => `${a}${w}${FRAC[f]}`).replace(/(^|\s)(1\/2|1\/4|3\/4|1\/3|2\/3|0[.,]5|0[.,]25|0[.,]75)(?=\s)/g, (m2, a, f) => a + FRAC[f]);
       t = t.replace(/^((?:\d+[\d.,/½¼¾⅓⅔]*|[½¼¾⅓⅔])\s*(?:à\s*\d+\s*)?(?:g|kg|mg|cl|l|ml|c\. à s\.|c\. à c\.))\s+(?!de\b|d’|du\b|des\b|d'|\()(\S)/i, (m2, q, c) => `${q} ${/^[aeiouyàâéèêëîïôöùûüœh]/i.test(c) ? "d\u2019" : "de "}${c}`);
       t = t.replace(/^((?:[\d½¼¾⅓⅔][^a-zA-ZÀ-ÿ]*(?:\s*(?:kg|mg|g|cl|l|ml|c\. à s\.|c\. à c\.)\s+(?:de |d’)?)?)|(?:(?:de |d’)))?([A-ZÀ-ÝŒ])(?=[a-zà-ÿœ])/, (m2, a, c) => (a || "") + c.toLowerCase());
+      t = t.replace(/^(\d+)\s+bouillons?\s+cubes?\s+de\s+/i, (m2, n) => `${n} ${+n > 1 ? "cubes" : "cube"} de bouillon de `);
+      t = t.replace(/^(\d+)\s+bouquets?\s+garnis?\b/i, (m2, n) => `${n} ${+n > 1 ? "bouquets garnis" : "bouquet garni"}`);
       const UW = "pinc\xE9e|tranche|gousse|branche|feuille|brin|sachet|bo\xEEte|botte|bouquet|paquet|pot|verre|tasse|poign\xE9e|morceau|cube|rouleau|tige|b\xE2ton|portion";
       let m = t.match(new RegExp("^(\\d+(?:[.,]\\d+)?)\\s+(" + UW + ")(?=\\s|$)(\\s+(?:de |d\u2019)?)?([A-Z\xC0-\xDD\u0152](?=[a-z\xE0-\xFF\u0153]))?"));
       if (m) {
         const q = num(m[1]);
         t = m[1] + " " + m[2] + (q > 1 && !/s$/.test(m[2]) ? "s" : "") + (m[3] || "") + (m[4] ? m[4].toLowerCase() : "") + t.slice(m[0].length);
-      } else if ((m = t.match(/^(\d+(?:[.,]\d+)?)\s+(?![a-zà-ÿ]\.)([^\s].*)$/)) && num(m[1]) > 1 && COUNTABLE.test(m[2].replace(/^[A-ZÀ-ÝŒ]/, (c) => c.toLowerCase()))) {
-        t = m[1] + " " + plural(m[2].replace(/^[A-ZÀ-ÝŒ]/, (c) => c.toLowerCase()), num(m[1]), "n");
+      } else {
+        const AG = /(^|\s)(sèchées?|séchées?|séché|sèché|concassées?|concassé|rouges?|verts?|vertes?|jaunes?|blancs?|noirs?|douces?|violettes?|cerises?|fumées?|fumés?|brisées?|feuilletées?|sablées?|émincés?|émincées?)(?![A-Za-zÀ-ÿ])/gi;
+        const agr = (r, pl) => r.replace(AG, (x, sp, w) => {
+          return sp + fixAdj(w, pl);
+        });
+        const PLG = /^(pomme de terre|carotte|tomate|courgette|oignon|aubergine|poireau|champignon|patate|navet|betterave|pomme|poire|lardon|poivron|échalote|endive|concombre|crevette|avocat)(s?)(?![A-Za-zÀ-ÿ])/i;
+        const PLN = /^(pomme de terre|carotte|tomate|courgette|oignon|aubergine|poireau|champignon|patate|navet|betterave|pomme|poire|lardon|poivron|échalote|endive|concombre|crevette|avocat|œuf|saucisse|reblochon|cornichon|chipolata|tortilla|banane|citron|orange|clémentine|kiwi|figue|abricot|pêche|fraise|artichaut|crêpe|escalope|cuisse|paupiette|merguez|brochette)(s?)(?![A-Za-zÀ-ÿ])/i;
+        const apply = (name, pl, re) => {
+          const h = name.match(re);
+          if (!h) return name;
+          let head = h[1].toLowerCase(), rest = name.slice(h[0].length);
+          if (pl) head = head === "pomme de terre" ? "pommes de terre" : /s$/.test(head) ? head : head + "s";
+          return head + agr(rest, pl);
+        };
+        let m2;
+        if (m2 = t.match(/^((?:\d+(?:[.,]\d+)?|[½¼¾⅓⅔])(?:\s*(?:à|-)\s*\d+(?:[.,]\d+)?)?)\s+(?!(?:kg|mg|g|cl|ml|l|c\. à|pincée|tranche|gousse|branche|feuille|brin|sachet|boîte|botte|bouquet|paquet|pot|verre|tasse|poignée|morceau|cube|rouleau|tige|bâton|portion|petite|petit|grosse?|bon)\b)(\S.*)$/i)) {
+          const q = num(m2[1]);
+          t = m2[1] + " " + apply(m2[2].replace(/^[A-ZÀ-ÝŒ](?=[a-zà-ÿœ])/, (c) => c.toLowerCase()), q > 1, PLN);
+        } else if (m2 = t.match(/^(\S+\s+(?:kg|g)\s+(?:de |d’))(.*)$/)) t = m2[1] + apply(m2[2], true, PLG);
       }
       t = t.replace(/^(\d+(?:[.,]\d+)?\s+(?:bouillon|œuf)s?\s)/i, (a, b) => b).replace(/ (Bœuf|Poulet|Légumes|Volaille)\b/g, (a, w) => " " + w.toLowerCase());
+      t = t.replace(new RegExp("^((?:\\d+[.,]?\\d*|[\xBD\xBC\xBE\u2153\u2154])\\s+(?:" + UW + ")s?)\\s+(?!de\\b|d\u2019|du\\b|des\\b|garni|\\(|de la\\b|\xE0\\b|aux?\\b|petite|petit|grosse?|bien|bonne|belle)([A-Za-z\xC0-\xFF\u0152\u0153])", "i"), (m2, q, c) => `${q} ${/^[aeiouyàâéèêëîïôöùûüœh]/i.test(c) ? "d\u2019" : "de "}${c}`);
+      t = t.replace(/(cubes? de bouillon[^()]*?) \(cubes?\)/i, "$1");
+      const PROPER = /^(Paris|Provence|Dijon|Toulouse|Morteau|Montbéliard|Savoie|Bourgogne|Jean|Louis|Jean-Louis|Amiotte|Frankfort|Parmigiano|Reggiano|Dauphiné|Arborio|Rocamadour|Monsieur|Combava|Bretonne|Fontenay|Mille|QS)$/;
+      t = t.replace(/(^|[\s(])([A-ZÀ-ÝŒ][a-zà-ÿœ’-]+)/g, (m2, a, w) => PROPER.test(w) ? m2 : a + w[0].toLowerCase() + w.slice(1));
       return t.replace(/\s+/g, " ").replace(/\s+([,.;])/g, "$1").replace(/\s*\.$/, "").trim();
     }
     const harmonizeIngredients = (text) => String(text || "").split(/\r?\n/).map((l) => l.trim() ? harmonizeLine(l) : "").filter((l, i, a) => l || i && a[i - 1]).join("\n").trim();
@@ -1277,10 +1344,12 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
   })();
   __m.ideas = (() => {
     const { esc, openModal, closeModal, toast } = __m.util;
-    const { translateIdea } = __m.ext;
+    const { translateIdea, marmitonSearch } = __m.ext;
     const db = __m.db;
-    const { harmonizeIngredients } = __m.shopping;
+    const { harmonizeIngredients, addIngredients } = __m.shopping;
     const ratingHTML = (idea) => idea.rating ? ` <span class="chip rating">\u2605 ${String(idea.rating).replace(".", ",")}/5${idea.ratingCount ? ` \xB7 ${idea.ratingCount} avis` : ""}</span>` : "";
+    const stars = (n) => n ? ` <span class="chip rating">\u2605 ${String(n).replace(".", ",")}/5</span>` : "";
+    const reviewsHTML = (idea) => idea.source !== "Marmiton" ? "" : idea.reviews && idea.reviews.length ? `<h4>Commentaires des internautes</h4>${idea.reviews.map((r) => `<div class="review"><b>${esc(r.author || "Internaute")}</b>${stars(r.rating)}${r.date ? ` <small class="muted">${esc(r.date)}</small>` : ""}<p>${esc(r.text)}</p></div>`).join("")}` : `<p class="muted small">Pas de commentaires r\xE9cup\xE9r\xE9s pour cette recette.${idea.source_url ? " Ils sont lisibles sur la page Marmiton." : ""}</p>`;
     const ideaCardHTML = (idea) => {
       const ing = String(harmonizeIngredients(idea.ingredients) || "").split("\n").filter(Boolean);
       const steps = String(idea.instructions || "").split("\n").filter(Boolean);
@@ -1293,6 +1362,7 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
       <h4>Ingr\xE9dients</h4><ul>${ing.map((i) => `<li>${esc(i)}</li>`).join("")}</ul>
       <h4>Pr\xE9paration</h4>${steps.map((s) => `<p>${esc(s)}</p>`).join("")}
       ${idea.lang === "en" ? '<p class="muted small">Texte en anglais (traduction automatique indisponible).</p>' : idea.translated ? '<p class="muted small">Traduit automatiquement.</p>' : ""}
+      ${reviewsHTML(idea)}
       ${idea.note ? `<p class="muted small">${esc(idea.note)}</p>` : ""}
       ${idea.source_url ? `<p><a href="${esc(idea.source_url)}" target="_blank" rel="noopener">${idea.source === "Marmiton" ? "Voir sur Marmiton \u2197" : "Source \u2197"}</a></p>` : ""}
     </div></div>`;
@@ -1352,13 +1422,69 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
       };
       await load();
     }
-    return { ratingHTML, ideaCardHTML, saveIdeaAsRecipe, openIdea };
+    function openMarmitonSearch(initial = "") {
+      const TYPES = [["", "Tout"], ["entree", "Entr\xE9e"], ["platprincipal", "Plat"], ["dessert", "Dessert"]];
+      let results = [], q = initial, type = "", busy = false, err = "";
+      const draw = () => openModal(`<div class="ideabox"><h2 class="script">Chercher sur Marmiton</h2>
+    <form id="mq" class="inlineform"><input name="q" placeholder="ex. gratin dauphinois, tarte aux poireaux\u2026" value="${esc(q)}" required><select name="type">${TYPES.map((t) => `<option value="${t[0]}" ${t[0] === type ? "selected" : ""}>${t[1]}</option>`).join("")}</select><button class="btn primary">Chercher</button></form>
+    ${busy ? '<div class="loading"><span class="spinner"></span> Recherche en cours\u2026</div>' : err ? `<p class="muted">${esc(err)}</p>` : results.length ? `<div class="mres">${results.map((r, i) => `<button class="mrow2" data-i="${i}">${r.photo_url ? `<img src="${esc(r.photo_url)}" alt="" loading="lazy">` : '<span class="noimg"></span>'}<span class="grow"><b>${esc(r.title)}</b><br><small>${r.rating ? `\u2605 ${String(r.rating).replace(".", ",")}/5${r.ratingCount ? ` \xB7 ${r.ratingCount} avis` : ""}` : "pas de note"}${r.area ? " \xB7 " + esc(r.area) : ""}</small></span></button>`).join("")}</div>` : '<p class="muted small">Les r\xE9sultats s\u2019affichent tri\xE9s par note.</p>'}
+    <div class="formactions"><span class="grow"></span><button class="btn ghost" data-close>Fermer</button></div></div>`, { wide: true, onMount: (root) => {
+        root.querySelector("[data-close]").onclick = closeModal;
+        root.querySelector("#mq").onsubmit = async (e) => {
+          e.preventDefault();
+          q = e.target.elements.q.value.trim();
+          type = e.target.elements.type.value;
+          if (!q) return;
+          busy = true;
+          err = "";
+          results = [];
+          draw();
+          try {
+            results = await marmitonSearch(q, type);
+          } catch (x) {
+            err = `Recherche impossible (${String(x.message || x).slice(0, 140)}). V\xE9rifiez que la fonction Marmiton est bien en ligne.`;
+          }
+          busy = false;
+          draw();
+        };
+        root.querySelectorAll("[data-i]").forEach((b) => {
+          b.onclick = () => detail(results[+b.dataset.i]);
+        });
+      } });
+      const detail = (idea) => openModal(`<div class="ideabox"><h2 class="script">Marmiton</h2>${ideaCardHTML(idea)}
+    <div class="formactions wrap"><button class="btn ghost" data-back>\u2039 R\xE9sultats</button><button class="btn ghost" data-close>Fermer</button><span class="grow"></span><button class="btn" data-shop>Ajouter aux courses</button><button class="btn primary" data-save>\uFF0B Ajouter \xE0 mes recettes</button></div></div>`, { wide: true, onMount: (root) => {
+        root.querySelector("[data-back]").onclick = draw;
+        root.querySelector("[data-close]").onclick = closeModal;
+        root.querySelector("[data-shop]").onclick = async (e) => {
+          e.target.disabled = true;
+          try {
+            const n = await addIngredients({ ingredients: idea.ingredients, title: idea.title });
+            toast(`${n} ingr\xE9dient${n > 1 ? "s" : ""} ajout\xE9${n > 1 ? "s" : ""} \xE0 la liste de courses`);
+          } catch (x) {
+            toast(x.message, "err");
+          }
+          e.target.disabled = false;
+        };
+        root.querySelector("[data-save]").onclick = async (e) => {
+          e.target.disabled = true;
+          try {
+            await saveIdeaAsRecipe(idea);
+            toast("Ajout\xE9 \xE0 votre carnet de recettes");
+          } catch (x) {
+            toast(x.message, "err");
+            e.target.disabled = false;
+          }
+        };
+      } });
+      draw();
+    }
+    return { ratingHTML, reviewsHTML, ideaCardHTML, saveIdeaAsRecipe, openIdea, openMarmitonSearch };
   })();
   __m.recipes = (() => {
     const { $, $$, esc, toast, openModal, closeModal, formDialog, compressImage, ymd, DAYS } = __m.util;
     const db = __m.db;
     const { scanBox, bindScan, fillForm, ocr, parseRecipe } = __m.scan;
-    const { openIdea } = __m.ideas;
+    const { openIdea, openMarmitonSearch } = __m.ideas;
     const { randomMeal, randomCocktail, MEAL_CATS } = __m.ext;
     const { importRecipes } = __m.seed;
     const { addIngredients, harmonizeIngredients } = __m.shopping;
@@ -1380,7 +1506,7 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
       return `${imp}<div class="bar wrapbar">
     <input type="search" id="rq" placeholder="Rechercher une recette ou un ingr\xE9dient\u2026" value="${esc(query)}">
     <button class="btn" id="ideaMeal">Id\xE9e de ${mealCat.toLowerCase()}</button>
-    <button class="btn" id="ideaAlc">Cocktail</button><button class="btn" id="ideaNoAlc">Sans alcool</button>
+    <button class="btn" id="searchMarm">Chercher sur Marmiton</button><button class="btn" id="ideaAlc">Cocktail</button><button class="btn" id="ideaNoAlc">Sans alcool</button>
     <button class="btn" id="harmBtn" title="\xC9crire tous les ingr\xE9dients de la m\xEAme fa\xE7on">Harmoniser</button><button class="btn" id="scanRec">Scanner une recette</button><button class="btn primary" id="addRec">\uFF0B Recette</button></div>
   <div class="chips" id="rchips"><button data-c="" class="${!cat && !favOnly ? "on" : ""}">Toutes (${recipes().length})</button><button data-fav class="${favOnly ? "on" : ""}">\u2665 Favorites</button>
     ${CATEGORIES.map((c) => `<button data-c="${esc(c)}" class="${cat === c ? "on" : ""}">${esc(c)}</button>`).join("")}</div>
@@ -1521,6 +1647,7 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
         const k = MEAL_CATS[cat] ? cat : "Plat";
         openIdea(() => randomMeal(MEAL_CATS[k]), { title: `Id\xE9e de ${k.toLowerCase()}`, saveCategory: k });
       };
+      $("#searchMarm", root).onclick = () => openMarmitonSearch(query);
       $("#ideaAlc", root).onclick = () => openIdea(() => randomCocktail({ alcoholic: true }), { title: "Id\xE9e de cocktail" });
       $("#ideaNoAlc", root).onclick = () => openIdea(() => randomCocktail({ alcoholic: false }), { title: "Id\xE9e de cocktail sans alcool" });
       const imp = $("#impRec", root);
@@ -1926,11 +2053,43 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
       <a class="iconbtn" href="${esc(searchUrl(b))}" target="_blank" rel="noopener" title="Chercher le prix">Prix</a>${b.vivino_url ? `<a class="iconbtn" href="${esc(b.vivino_url)}" target="_blank" rel="noopener" title="Page Vivino">Vivino</a>` : ""}
       <input type="number" min="0" step="0.5" inputmode="decimal" data-k="${esc(priceKey(b))}" value="${(_a = b.estimated_value) != null ? _a : ""}" placeholder="\u2014" aria-label="Prix"><span>\u20AC</span></div>`;
       }).join("")}</div>
-    <div class="formactions"><button class="btn ghost" data-close>Annuler</button><span class="grow"></span><button class="btn primary" id="savePrices">Enregistrer les prix</button></div></div>`, {
+    <p id="pstat" class="muted small"></p><div class="formactions wrap"><button class="btn ghost" data-close>Annuler</button><button class="btn" id="vivPrices">Chercher les prix sur Vivino</button><span class="grow"></span><button class="btn primary" id="savePrices">Enregistrer les prix</button></div></div>`, {
         wide: true,
         onMount: (root) => {
           $("[data-close]", root).onclick = closeModal;
           $("#onlyMissing", root).onchange = (e) => $$(".prow2", root).forEach((r) => r.classList.toggle("hidden", e.target.checked && r.dataset.has === "1"));
+          $("#vivPrices", root).onclick = async (e) => {
+            const btn = e.target, st = $("#pstat", root), only = $("#onlyMissing", root).checked;
+            const todo = [...groups.entries()].filter(([k, g]) => !only || !g.b.estimated_value);
+            btn.disabled = true;
+            let ok = 0, fail = 0, last = "";
+            for (let i = 0; i < todo.length; i += 3) {
+              const part = todo.slice(i, i + 3);
+              st.textContent = `Recherche sur Vivino\u2026 ${Math.min(i + 3, todo.length)} / ${todo.length}`;
+              try {
+                const { data, error } = await Promise.race([db.store.sb.functions.invoke(window.FN_LABELS || "wine-labels", { body: { prices: part.map(([k, g]) => ({ key: k, url: g.b.vivino_url || void 0, query: [g.b.producer, g.b.name, g.b.vintage].filter(Boolean).join(" ") })) } }), new Promise((_, rej) => setTimeout(() => rej(new Error("pas de r\xE9ponse en 40 s")), 4e4))]);
+                if (error) throw new Error(error.message || "erreur");
+                for (const r of data && data.results || []) {
+                  if (r.ok) {
+                    const inp = $$("input[data-k]", root).find((x) => x.dataset.k === r.key);
+                    if (inp) {
+                      inp.value = r.price;
+                      inp.classList.add("found");
+                    }
+                    ok++;
+                  } else {
+                    fail++;
+                    last = r.error || last;
+                  }
+                }
+              } catch (x) {
+                fail += part.length;
+                last = x.message || String(x);
+              }
+            }
+            btn.disabled = false;
+            st.textContent = `${ok} prix trouv\xE9${ok > 1 ? "s" : ""} sur Vivino${fail ? `, ${fail} introuvable${fail > 1 ? "s" : ""}${last ? " (" + last.slice(0, 90) + ")" : ""}` : ""}. V\xE9rifiez puis cliquez sur \xAB Enregistrer les prix \xBB.`;
+          };
           $("#savePrices", root).onclick = async (e) => {
             e.target.disabled = true;
             let n = 0;
@@ -2015,7 +2174,7 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
     const { $, $$, esc, toast, openModal, closeModal, formDialog, ymd, parseYmd, addDays, weekStartSaturday, fmtLong, fmtShort, shuffle, pick, DAYS, guessShop } = __m.util;
     const db = __m.db;
     const { randomMeal, MEAL_CATS, translateIdea } = __m.ext;
-    const { addIngredients, addLines, itemLabel, tidyList } = __m.shopping;
+    const { addIngredients } = __m.shopping;
     const { scoreRecipe, seasonalNames, MONTHS } = __m.season;
     const { openRecipe } = __m.recipes;
     const { openIdea, saveIdeaAsRecipe, ratingHTML } = __m.ideas;
@@ -2034,25 +2193,16 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
     <small class="mtype">${TYPE_LABEL[type]}</small>
     ${p ? `<div class="mrow">${(r == null ? void 0 : r.photo_url) ? `<img src="${esc(r.photo_url)}" alt="" loading="lazy">` : ""}<span><b>${esc(p.title || (r == null ? void 0 : r.title) || "Repas")}</b><small>${p.servings || 3} pers.</small></span></div>` : '<span class="plus">\uFF0B</span>'}</div>`;
     }
-    function shoppingHTML() {
-      const list = [...db.store.t.shopping_items].sort((a, b) => (a.shop || "").localeCompare(b.shop || "") || a.name.localeCompare(b.name, "fr"));
-      const shops = [...new Set(list.map((i) => i.shop || "Supermarch\xE9"))];
-      const checked = list.filter((i) => i.checked).length;
-      return `<div class="card glass"><div class="sectionhead"><h3 class="script">Liste de courses</h3><span><button class="btn small" id="reshop">Ranger la liste (fusion, sans sel/poivre)</button> ${checked ? `<button class="btn small" id="clearChecked">Retirer les ${checked} coch\xE9s</button>` : ""}</span></div>
-    <form id="shopForm" class="inlineform"><input name="name" placeholder="Ajouter un article\u2026" required><select name="shop"><option>March\xE9</option><option selected>Supermarch\xE9</option></select><button class="btn primary">Ajouter</button></form>
-    ${shops.map((s) => `<h4>${s === "March\xE9" ? "" : ""} ${esc(s)}</h4>${list.filter((i) => (i.shop || "Supermarch\xE9") === s).map((i) => `<div class="shopitem ${i.checked ? "done" : ""}"><button class="tick" data-check="${i.id}" aria-label="Cocher">${i.checked ? "\u2713" : ""}</button><span class="grow">${esc(itemLabel(i))}${i.recipe_title ? `<small> \xB7 ${esc(i.recipe_title)}</small>` : ""}</span><button class="x" data-rm="${i.id}" aria-label="Supprimer">\xD7</button></div>`).join("")}`).join("") || '<div class="empty">La liste est vide.</div>'}</div>`;
-    }
     function html() {
       const days = weekDays(weekStart);
       const empty = !days.some((d) => planAt(ymd(d), "soir"));
       const banner = today.getDay() === 5 && ymd(weekStart) === ymd(weekStartSaturday(addDays(today, 1))) && empty ? `<div class="card glass accent"><b>C\u2019est vendredi !</b> On pr\xE9pare les menus de la semaine qui commence demain ? <button class="btn primary" data-propose>Proposer les menus</button></div>` : "";
       return `${banner}<div class="bar"><div class="seg"><button id="wprev" aria-label="Semaine pr\xE9c\xE9dente">\u2039</button><button id="wnow">Cette semaine</button><button id="wnext" aria-label="Semaine suivante">\u203A</button></div>
     <b class="weeklabel">${fmtShort(weekStart)} \u2192 ${fmtShort(addDays(weekStart, 6))}</b><span class="grow"></span>
-    <button class="btn" id="weekShop">Courses de la semaine</button><button class="btn primary" data-propose>Proposer les menus</button></div>
+    <button class="btn" id="weekShop">Ajouter les courses de la semaine</button><button class="btn" id="toList">Voir la liste de courses</button><button class="btn primary" data-propose>Proposer les menus</button></div>
   <div class="week">${days.map((d) => `<div class="daycard glass ${ymd(d) === ymd(today) ? "today" : ""}"><h4>${esc(fmtLong(d))}</h4>${typesOf(d).map((t) => mealCell(d, t)).join("")}</div>`).join("")}</div>
   <p class="muted small">De saison en ${MONTHS[seasonMonth() - 1]} : ${esc(seasonalNames(seasonMonth()).join(", "))}.</p>
-  <p class="muted small">Chaque d\xEEner est pr\xE9vu pour 3 personnes. Novembre \xE0 mars : soupe le dimanche et le lundi soir. Les propositions utilisent d\u2019abord votre carnet, en \xE9vitant ce que vous avez cuisin\xE9 ces trois derni\xE8res semaines.</p>
-  ${shoppingHTML()}`;
+  <p class="muted small">Chaque d\xEEner est pr\xE9vu pour 3 personnes. Novembre \xE0 mars : soupe le dimanche et le lundi soir. Les propositions utilisent d\u2019abord votre carnet, en \xE9vitant ce que vous avez cuisin\xE9 ces trois derni\xE8res semaines.</p>`;
     }
     function editSlot(date, type) {
       const p = planAt(date, type);
@@ -2218,7 +2368,8 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
       closeModal();
       toast(`${added} repas planifi\xE9s${shop ? ` \xB7 ${ingredients} ingr\xE9dients ajout\xE9s aux courses` : ""}`);
     }
-    function bind(root, rerender) {
+    function bind(root, rerender, go) {
+      $("#toList", root).onclick = () => go("courses");
       $("#wprev", root).onclick = () => {
         weekStart = addDays(weekStart, -7);
         rerender();
@@ -2239,11 +2390,29 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
           const r = recipeById(id);
           if (r) n += await addIngredients(r);
         }
-        toast(ids.size ? `${n} ingr\xE9dient${n > 1 ? "s" : ""} ajout\xE9${n > 1 ? "s" : ""} \xE0 la liste` : "Aucune recette planifi\xE9e cette semaine");
+        toast(ids.size ? `${n} ingr\xE9dient${n > 1 ? "s" : ""} ajout\xE9${n > 1 ? "s" : ""} \xE0 la liste de courses` : "Aucune recette planifi\xE9e cette semaine");
       };
       root.onclick = async (e) => {
         const m = e.target.closest(".meal");
         if (m) return editSlot(m.dataset.date, m.dataset.type);
+      };
+    }
+    return { html, bind };
+  })();
+  __m.courses = (() => {
+    const { $, esc, toast } = __m.util;
+    const db = __m.db;
+    const { addLines, itemLabel, tidyList } = __m.shopping;
+    function html() {
+      const list = [...db.store.t.shopping_items].sort((a, b) => (a.shop || "").localeCompare(b.shop || "") || a.name.localeCompare(b.name, "fr"));
+      const shops = [...new Set(list.map((i) => i.shop || "Supermarch\xE9"))];
+      const checked = list.filter((i) => i.checked).length;
+      return `<div class="card glass"><div class="sectionhead"><h3 class="script">Liste de courses</h3><span><button class="btn small" id="reshop">Ranger la liste (fusion, sans sel/poivre)</button> ${checked ? `<button class="btn small" id="clearChecked">Retirer les ${checked} coch\xE9s</button>` : ""}</span></div>
+    <form id="shopForm" class="inlineform"><input name="name" placeholder="Ajouter un article\u2026" required><select name="shop"><option>March\xE9</option><option selected>Supermarch\xE9</option></select><button class="btn primary">Ajouter</button></form>
+    ${shops.map((s) => `<h4>${s === "March\xE9" ? "" : ""} ${esc(s)}</h4>${list.filter((i) => (i.shop || "Supermarch\xE9") === s).map((i) => `<div class="shopitem ${i.checked ? "done" : ""}"><button class="tick" data-check="${i.id}" aria-label="Cocher">${i.checked ? "\u2713" : ""}</button><span class="grow">${esc(itemLabel(i))}${i.recipe_title ? `<small> \xB7 ${esc(i.recipe_title)}</small>` : ""}</span><button class="x" data-rm="${i.id}" aria-label="Supprimer">\xD7</button></div>`).join("")}`).join("") || '<div class="empty">La liste est vide.</div>'}</div>`;
+    }
+    function bind(root, rerender, go) {
+      root.onclick = async (e) => {
         const c = e.target.closest("[data-check]");
         if (c) {
           const it = db.store.t.shopping_items.find((i) => i.id === c.dataset.check);
@@ -2522,9 +2691,9 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
       maison: '<polygon points="30,98 150,98 150,200 30,200" fill="#f4ecd9"/><polygon points="150,98 190,112 190,200 150,200" fill="#dccfb2"/><polygon points="20,98 90,36 160,98" fill="#2d5b4e"/><polygon points="90,36 160,98 190,112 110,40" fill="#234a3f"/><polygon points="72,36 108,36 108,10 94,10" fill="#2d5b4e" opacity="0"/><rect x="48" y="124" width="26" height="34" rx="3" fill="#e8c76c"/><rect x="104" y="124" width="26" height="34" rx="3" fill="#e8c76c"/><polygon points="74,200 74,158 100,158 100,200" fill="#2d5b4e"/><polygon points="76,62 102,62 102,86 76,86" fill="#e8c76c"/>'
     };
     const TILES = [
-      ["menus", "Courses", "courses", "#c6edd8", "#8fc3a6"],
+      ["courses", "Courses", "courses", "#c6edd8", "#8fc3a6"],
       ["agenda", "Calendrier", "agenda", "#fcf0c8", "#f6cd8b"],
-      ["menus", "Menu", "menu", "#f3b3a4", "#e5806f"],
+      ["menus", "Planning", "menu", "#f3b3a4", "#e5806f"],
       ["recipes", "Recettes", "recettes", "#faf0b0", "#f4e08e"],
       ["cellar", "Cave \xE0 vin", "cave", "#f1a7a0", "#ee7f72"],
       ["music", "Playlists", "playlists", "#e1dcf6", "#aeb0ee"],
@@ -2688,13 +2857,15 @@ var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
     const cellar = __m.cellar;
     const recipes = __m.recipes;
     const menus = __m.menus;
+    const courses = __m.courses;
     const { news, stopReading } = __m.news;
     const { home, agenda, music, homebook } = __m.misc;
     const PAGES = {
       home: { icon: "", label: "Accueil", title: "Bonjour \xE0 tous", mod: home, tables: ["meal_plans", "family_events", "shopping_items", "recipes", "cellar_items"] },
       cellar: { icon: "", label: "Cave & spiritueux", title: "Notre cave", mod: cellar, tables: ["cellar_items"] },
       recipes: { icon: "", label: "Recettes", title: "Le carnet de recettes", mod: recipes, tables: ["recipes"] },
-      menus: { icon: "", label: "Menus & courses", title: "\xC0 table !", mod: menus, tables: ["meal_plans", "shopping_items", "recipes"] },
+      menus: { icon: "", label: "Planning de la semaine", title: "Le planning des repas", mod: menus, tables: ["meal_plans", "recipes"] },
+      courses: { icon: "", label: "Liste de courses", title: "La liste de courses", mod: courses, tables: ["shopping_items"] },
       news: { icon: "", label: "Actualit\xE9s", title: "L\u2019actualit\xE9 du jour", mod: news, tables: [] },
       agenda: { icon: "", label: "Agenda", title: "L\u2019agenda familial", mod: agenda, tables: ["family_events"] },
       music: { icon: "", label: "Playlists", title: "Nos playlists", mod: music, tables: ["playlists"] },

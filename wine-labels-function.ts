@@ -58,10 +58,44 @@ async function labelFor(b: { id: string; url?: string; query?: string }) {
   } catch (e) { return { id: b.id, ok: false, error: String((e as Error).message || e).slice(0, 120) }; }
 }
 
+// ---- prix : lit le prix affiché sur la page Vivino de la bouteille (gratuit, sans clé)
+const plausible = (n: number) => Number.isFinite(n) && n >= 2 && n <= 20000;
+function priceFromHtml(html: string): number | null {
+  const pats: RegExp[] = [
+    /"lowPrice"\s*:\s*"?(\d+(?:[.,]\d+)?)/, /"price"\s*:\s*\{[^}]*?"amount"\s*:\s*(\d+(?:\.\d+)?)/, /"amount"\s*:\s*(\d+(?:\.\d+)?)\s*,\s*"currency"/,
+    /"price"\s*:\s*"?(\d+(?:[.,]\d+)?)"?\s*,\s*"priceCurrency"/, /"priceCurrency"[^}]{0,40}"price"\s*:\s*"?(\d+(?:[.,]\d+)?)/,
+    /property=["']product:price:amount["'][^>]+content=["'](\d+(?:[.,]\d+)?)/i, /"price"\s*:\s*(\d+(?:\.\d+)?)/,
+  ];
+  for (const re of pats) { const m = html.match(re); if (m) { const n = parseFloat(m[1].replace(',', '.')); if (plausible(n)) return Math.round(n * 100) / 100; } }
+  const t = html.match(/(\d{1,4}(?:[.,]\d{1,2})?)\s?€|€\s?(\d{1,4}(?:[.,]\d{1,2})?)/);
+  if (t) { const n = parseFloat((t[1] || t[2]).replace(',', '.')); if (plausible(n)) return Math.round(n * 100) / 100; }
+  return null;
+}
+async function priceFor(b: { key: string; url?: string; query?: string }) {
+  try {
+    let pageUrl = b.url || '';
+    if (pageUrl) { const u = new URL(pageUrl); if (!okHost(u)) return { key: b.key, ok: false, error: 'lien non Vivino' }; }
+    else if (b.query) pageUrl = (await findPage(b.query)) || '';
+    if (!pageUrl) return { key: b.key, ok: false, error: 'bouteille introuvable sur Vivino' };
+    let price: number | null = null, why = '';
+    const r = await get(pageUrl);
+    if (r.ok) price = priceFromHtml(await r.text()); else why = 'Vivino a répondu ' + r.status;
+    if (price === null) { try { const j = await get('https://r.jina.ai/' + pageUrl, 'text/plain'); if (j.ok) price = priceFromHtml(await j.text()); } catch (_) { /* ignore */ } }
+    if (price === null) return { key: b.key, ok: false, error: why || 'aucun prix affiché sur Vivino', page: pageUrl };
+    return { key: b.key, ok: true, price, source: 'Vivino', page: pageUrl };
+  } catch (e) { return { key: b.key, ok: false, error: String((e as Error).message || e).slice(0, 120) }; }
+}
+
 Deno.serve(async req => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
   try {
-    const { bottles } = await req.json();
+    const body = await req.json();
+    if (Array.isArray(body.prices)) {
+      const results = [];
+      for (const b of body.prices.slice(0, 4)) results.push(await priceFor(b));
+      return json({ results });
+    }
+    const { bottles } = body;
     if (!Array.isArray(bottles) || !bottles.length) return json({ error: 'aucune bouteille' }, 400);
     const results = [];
     for (const b of bottles.slice(0, 4)) results.push(await labelFor(b));
