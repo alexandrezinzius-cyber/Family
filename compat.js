@@ -21,7 +21,7 @@
   if (w.Promise && !w.Promise.prototype['finally']) w.Promise.prototype['finally'] = function (f) { var P = this.constructor; return this.then(function (v) { return P.resolve(f()).then(function () { return v; }); }, function (e) { return P.resolve(f()).then(function () { throw e; }); }); };
   if (w.Element && !Element.prototype.closest) Element.prototype.closest = function (s) { var e = this; while (e && e.nodeType === 1) { if ((e.matches || e.webkitMatchesSelector).call(e, s)) return e; e = e.parentNode; } return null; };
   if (w.HTMLCanvasElement && !HTMLCanvasElement.prototype.toBlob) HTMLCanvasElement.prototype.toBlob = function (cb, type, q) { var c = this; setTimeout(function () { var d = atob(c.toDataURL(type, q).split(',')[1]), a = new Uint8Array(d.length); for (var i = 0; i < d.length; i++) a[i] = d.charCodeAt(i); cb(new Blob([a], { type: type || 'image/png' })); }); };
-  if (!w.visualViewport) { /* rien */ }
+  if (w.Symbol && Symbol.iterator) [w.NodeList, w.HTMLCollection].forEach(function (C) { if (C && !C.prototype[Symbol.iterator]) C.prototype[Symbol.iterator] = Array.prototype[Symbol.iterator]; });
 
   // ---- fetch minimal (XMLHttpRequest) ----
   if (!w.fetch) {

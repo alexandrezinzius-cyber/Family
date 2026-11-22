@@ -5181,7 +5181,347 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                 }; });
             }
         };
-        return { slotOf: slotOf, refresh: refresh, stopReading: stopReading, news: news };
+        return { slotOf: slotOf, read: read, refresh: refresh, stopReading: stopReading, news: news };
+    })();
+    __m.dashboard = (function () {
+        var _d = __m.util, $ = _d.$, $$ = _d.$$, esc = _d.esc, toast = _d.toast, ymd = _d.ymd, fmtLong = _d.fmtLong, fmtTime = _d.fmtTime, PEOPLE = _d.PEOPLE;
+        var db = __m.db;
+        var nw = __m.news;
+        var t = function (k) { return db.store.t[k]; };
+        var pIndex = function (o) { return Math.max(0, PEOPLE.indexOf(o)); };
+        var CITY_KEY = "family-city", WX_KEY = "family-weather";
+        var jget = function (k) {
+            try {
+                return JSON.parse(localStorage.getItem(k));
+            }
+            catch (e) {
+                return null;
+            }
+        };
+        var jset = function (k, v) {
+            try {
+                localStorage.setItem(k, JSON.stringify(v));
+            }
+            catch (e) {
+            }
+        };
+        var timeout = function (p, ms) { return Promise.race([p, new Promise(function (_, rej) { return setTimeout(function () { return rej(new Error("d\xE9lai d\xE9pass\xE9")); }, ms); })]); };
+        var KIND = function (c) { return c === 0 ? "sun" : c <= 2 ? "part" : c === 3 ? "cloud" : c <= 48 ? "fog" : c <= 57 ? "drizzle" : c <= 67 ? "rain" : c <= 77 ? "snow" : c <= 82 ? "rain" : c <= 86 ? "snow" : "storm"; };
+        var LABEL = { sun: "D\xE9gag\xE9", part: "\xC9claircies", cloud: "Nuageux", fog: "Brouillard", drizzle: "Bruine", rain: "Pluie", snow: "Neige", storm: "Orage" };
+        var CLOUD = '<path d="M9 26a6 6 0 0 1 1-11.9A8 8 0 0 1 25.4 13 5.5 5.5 0 0 1 25 26z" fill="#c9d3de"/>';
+        var ICON = {
+            sun: '<circle cx="16" cy="16" r="6" fill="#f6b73c"/><g stroke="#f6b73c" stroke-width="2" stroke-linecap="round"><path d="M16 3v4M16 25v4M3 16h4M25 16h4M6.8 6.8l2.8 2.8M22.4 22.4l2.8 2.8M6.8 25.2l2.8-2.8M22.4 9.6l2.8-2.8"/></g>',
+            part: '<circle cx="12" cy="11" r="5" fill="#f6b73c"/>' + CLOUD.replace("M9 26", "M10 28").replace(/a6 6/, "a6 6"),
+            cloud: CLOUD,
+            fog: CLOUD + '<g stroke="#9aa7b5" stroke-width="2" stroke-linecap="round"><path d="M6 28h20M9 31h14"/></g>',
+            drizzle: CLOUD + '<g stroke="#5b9bd5" stroke-width="2" stroke-linecap="round"><path d="M11 28l-1 3M17 28l-1 3M23 28l-1 3"/></g>',
+            rain: CLOUD + '<g stroke="#3f84c9" stroke-width="2.4" stroke-linecap="round"><path d="M11 27.5l-2 4M17 27.5l-2 4M23 27.5l-2 4"/></g>',
+            snow: CLOUD + '<g fill="#8fb8e0"><circle cx="11" cy="29" r="1.8"/><circle cx="17" cy="30.5" r="1.8"/><circle cx="23" cy="29" r="1.8"/></g>',
+            storm: CLOUD.replace("#c9d3de", "#9aa5b3") + '<path d="M17 24l-4 6h4l-2 5 6-8h-4l2-3z" fill="#f6b73c"/>'
+        };
+        var icon = function (k, s) {
+            if (s === void 0) { s = 34; }
+            return "<svg class=\"wxi\" viewBox=\"0 0 32 36\" width=\"".concat(s, "\" height=\"").concat(s, "\" aria-hidden=\"true\">").concat(ICON[k], "</svg>");
+        };
+        var lastTry = 0, wx = jget(WX_KEY), wxLoading = false, wxError = "", cityResults = null;
+        var DEFAULT_CITY = { name: "Joinville-le-Pont", lat: 48.8225, lon: 2.4733 };
+        var city = function () { return jget(CITY_KEY) || DEFAULT_CITY; };
+        function geocode(name) {
+            return __awaiter(this, void 0, void 0, function () {
+                var r, j;
+                return __generator(this, function (_d) {
+                    switch (_d.label) {
+                        case 0: return [4 /*yield*/, timeout(fetch("https://geocoding-api.open-meteo.com/v1/search?count=5&language=fr&name=" + encodeURIComponent(name)), 12e3)];
+                        case 1:
+                            r = _d.sent();
+                            if (!r.ok)
+                                throw new Error("recherche de ville " + r.status);
+                            return [4 /*yield*/, r.json()];
+                        case 2:
+                            j = _d.sent();
+                            return [2 /*return*/, (j.results || []).map(function (x) { return ({ name: x.name, region: x.admin1 || "", country: x.country || "", lat: x.latitude, lon: x.longitude }); })];
+                    }
+                });
+            });
+        }
+        function loadWeather(force) {
+            return __awaiter(this, void 0, void 0, function () {
+                var c, url, r, j, e_40;
+                return __generator(this, function (_d) {
+                    switch (_d.label) {
+                        case 0:
+                            c = city();
+                            if (!c || wxLoading)
+                                return [2 /*return*/, false];
+                            if (!force && wx && wx.key === c.lat + "," + c.lon && Date.now() - wx.at < 20 * 60 * 1e3)
+                                return [2 /*return*/, false];
+                            wxLoading = true;
+                            wxError = "";
+                            lastTry = Date.now();
+                            _d.label = 1;
+                        case 1:
+                            _d.trys.push([1, 4, 5, 6]);
+                            url = "https://api.open-meteo.com/v1/forecast?latitude=" + c.lat + "&longitude=" + c.lon + "&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m&hourly=temperature_2m,precipitation_probability,weather_code&daily=temperature_2m_max,temperature_2m_min,sunrise,sunset,precipitation_probability_max&timezone=auto&forecast_days=2&wind_speed_unit=kmh";
+                            return [4 /*yield*/, timeout(fetch(url), 15e3)];
+                        case 2:
+                            r = _d.sent();
+                            if (!r.ok)
+                                throw new Error("service m\xE9t\xE9o " + r.status);
+                            return [4 /*yield*/, r.json()];
+                        case 3:
+                            j = _d.sent();
+                            if (!j.hourly || !j.current)
+                                throw new Error("r\xE9ponse m\xE9t\xE9o incompl\xE8te");
+                            wx = { key: c.lat + "," + c.lon, at: Date.now(), j: j };
+                            jset(WX_KEY, wx);
+                            return [2 /*return*/, true];
+                        case 4:
+                            e_40 = _d.sent();
+                            wxError = e_40.message || "erreur";
+                            return [2 /*return*/, false];
+                        case 5:
+                            wxLoading = false;
+                            return [7 /*endfinally*/];
+                        case 6: return [2 /*return*/];
+                    }
+                });
+            });
+        }
+        function weatherHTML() {
+            var c = city();
+            var search = "<form id=\"cityForm\" class=\"inlineform\"><input type=\"search\" id=\"cityQ\" placeholder=\"Ville (ex. Lyon)\" value=\"\" aria-label=\"Ville\"><button class=\"btn primary\" type=\"submit\">Chercher</button></form>";
+            if (cityResults) {
+                return "<div class=\"card glass\"><h3 class=\"script\">M\u00E9t\u00E9o</h3><p class=\"muted\">".concat(c ? "Choisissez la ville :" : "Indiquez votre ville pour afficher la m\xE9t\xE9o.", "</p>").concat(search, "\n      ").concat((cityResults || []).map(function (r, i) { return "<button class=\"row evrow\" data-city=\"".concat(i, "\"><span class=\"grow\"><b>").concat(esc(r.name), "</b><br><small>").concat(esc([r.region, r.country].filter(Boolean).join(", ")), "</small></span></button>"); }).join(""), "\n      ").concat(cityResults && !cityResults.length ? '<p class="muted">Aucune ville trouv\xE9e.</p>' : "").concat(c ? '<button class="btn ghost" id="cityCancel">Annuler</button>' : "", "</div>");
+            }
+            if (!wx || wx.key !== c.lat + "," + c.lon)
+                return "<div class=\"card glass\"><h3 class=\"script\">M\u00E9t\u00E9o \u00B7 ".concat(esc(c.name), "</h3><p class=\"muted\">").concat(wxLoading ? "Chargement\u2026" : esc(wxError ? "M\xE9t\xE9o indisponible : " + wxError : "\u2026"), "</p><button class=\"btn\" id=\"wxRefresh\">R\u00E9essayer</button> <button class=\"btn ghost\" id=\"cityChange\">Changer de ville</button></div>");
+            var j = wx.j, cur = j.current, today = cur.time.slice(0, 10), nowH = parseInt(cur.time.slice(11, 13), 10);
+            var hrs = [];
+            j.hourly.time.forEach(function (tm, i) {
+                if (tm.slice(0, 10) === today && parseInt(tm.slice(11, 13), 10) >= nowH)
+                    hrs.push(i);
+            });
+            var rest = hrs.slice();
+            if (rest.length < 8)
+                j.hourly.time.forEach(function (tm, i) {
+                    if (tm.slice(0, 10) > today && rest.length < 8)
+                        rest.push(i);
+                });
+            var k = KIND(cur.weather_code), dMax = Math.round(j.daily.temperature_2m_max[0]), dMin = Math.round(j.daily.temperature_2m_min[0]);
+            var age = Math.round((Date.now() - wx.at) / 6e4);
+            return "<div class=\"card glass wxcard\"><div class=\"wxhead\"><h3 class=\"script\">M\u00E9t\u00E9o \u00B7 ".concat(esc(c.name), "</h3><span class=\"grow\"></span><button class=\"btn small\" id=\"cityChange\">Changer de ville</button><button class=\"btn small\" id=\"wxRefresh\">Actualiser</button></div>\n    <div class=\"wxnow\">").concat(icon(k, 64), "<div><b class=\"wxtemp\">").concat(Math.round(cur.temperature_2m), "\u00B0</b><br><span>").concat(LABEL[k], " \u00B7 ressenti ").concat(Math.round(cur.apparent_temperature), "\u00B0 \u00B7 humidit\u00E9 ").concat(cur.relative_humidity_2m != null ? Math.round(cur.relative_humidity_2m) + " %" : "\u2014", " \u00B7 vent ").concat(Math.round(cur.wind_speed_10m), " km/h</span><br><small class=\"muted\">Min ").concat(dMin, "\u00B0 \u00B7 max ").concat(dMax, "\u00B0 \u00B7 pluie jusqu\u2019\u00E0 ").concat(j.daily.precipitation_probability_max[0] || 0, " % \u00B7 lever ").concat(esc(j.daily.sunrise[0].slice(11, 16)), " \u00B7 coucher ").concat(esc(j.daily.sunset[0].slice(11, 16)), "</small></div></div>\n    <div class=\"wxhours\">").concat(rest.map(function (i) {
+                var tm = j.hourly.time[i], kk = KIND(j.hourly.weather_code[i]);
+                return "<div class=\"wxh\"><small>".concat(tm.slice(0, 10) === today ? "" : "demain ").concat(parseInt(tm.slice(11, 13), 10), " h</small>").concat(icon(kk, 30), "<b>").concat(Math.round(j.hourly.temperature_2m[i]), "\u00B0</b><small class=\"muted\">").concat(j.hourly.precipitation_probability[i] || 0, " %</small></div>");
+            }).join(""), "</div>\n    <p class=\"muted small\">").concat(wxLoading ? "Mise \xE0 jour\u2026" : wxError ? esc("Mise \xE0 jour impossible (" + wxError + "), derni\xE8res donn\xE9es affich\xE9es.") : "Mis \xE0 jour il y a " + age + " min", " \u00B7 donn\u00E9es Open-Meteo</p></div>");
+        }
+        var Z = 7;
+        var radarTry = 0, radar = null, radarErr = "", radarIdx = -1, radarTimer = null;
+        function loadRadar() {
+            return __awaiter(this, void 0, void 0, function () {
+                var r, j, past, e_41;
+                return __generator(this, function (_d) {
+                    switch (_d.label) {
+                        case 0:
+                            if (radar && Date.now() - radar.at < 5 * 60 * 1e3)
+                                return [2 /*return*/, false];
+                            _d.label = 1;
+                        case 1:
+                            _d.trys.push([1, 4, , 5]);
+                            return [4 /*yield*/, timeout(fetch("https://api.rainviewer.com/public/weather-maps.json"), 12e3)];
+                        case 2:
+                            r = _d.sent();
+                            if (!r.ok)
+                                throw new Error("service radar " + r.status);
+                            return [4 /*yield*/, r.json()];
+                        case 3:
+                            j = _d.sent(), past = j.radar && j.radar.past || [];
+                            if (!past.length)
+                                throw new Error("aucune image radar");
+                            radar = { at: Date.now(), host: j.host || "https://tilecache.rainviewer.com", frames: past.slice(-6) };
+                            radarErr = "";
+                            radarIdx = radar.frames.length - 1;
+                            return [2 /*return*/, true];
+                        case 4:
+                            e_41 = _d.sent();
+                            radarErr = e_41.message || "erreur";
+                            radar = radar || null;
+                            return [2 /*return*/, false];
+                        case 5: return [2 /*return*/];
+                    }
+                });
+            });
+        }
+        function tileGeo(c) {
+            var n = Math.pow(2, Z), la = c.lat * Math.PI / 180;
+            var x = (c.lon + 180) / 360 * n, y = (1 - Math.log(Math.tan(la) + 1 / Math.cos(la)) / Math.PI) / 2 * n;
+            return { cx: Math.floor(x), cy: Math.floor(y), mx: (x - (Math.floor(x) - 1)) / 3 * 100, my: (y - (Math.floor(y) - 1)) / 3 * 100 };
+        }
+        var radarUrl = function (f, x, y) { return "".concat(radar.host).concat(f.path, "/256/").concat(Z, "/").concat(x, "/").concat(y, "/2/1_0.png"); };
+        function radarHTML() {
+            var c = city(), g = tileGeo(c), head = "<h3 class=\"script\">Radar de pr\u00E9cipitations</h3>";
+            if (!radar)
+                return "<div class=\"card glass\">".concat(head, "<p class=\"muted\">").concat(radarErr ? esc("Radar indisponible : " + radarErr) : "Chargement\u2026", "</p><button class=\"btn small\" id=\"radarRetry\">R\u00E9essayer</button></div>");
+            var f = radar.frames[radarIdx < 0 ? radar.frames.length - 1 : radarIdx];
+            var base = "", over = "";
+            for (var j = 0; j < 3; j++)
+                for (var i = 0; i < 3; i++) {
+                    var x = g.cx - 1 + i, y = g.cy - 1 + j, st = "left:".concat(i * 33.3333, "%;top:").concat(j * 33.3333, "%");
+                    base += "<img class=\"rt\" style=\"".concat(st, "\" src=\"https://a.basemaps.cartocdn.com/light_all/").concat(Z, "/").concat(x, "/").concat(y, ".png\" alt=\"\">");
+                    over += "<img class=\"rt ro\" data-x=\"".concat(x, "\" data-y=\"").concat(y, "\" style=\"").concat(st, "\" src=\"").concat(esc(radarUrl(f, x, y)), "\" alt=\"\">");
+                }
+            var time = new Date(f.time * 1e3).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+            return "<div class=\"card glass\">".concat(head, "<div class=\"radarbar\"><b id=\"radarTime\">").concat(esc(time), "</b><span class=\"grow\"></span><button class=\"btn small\" id=\"radarPlay\">Animer (2 h)</button></div>\n    <div class=\"radar\"><div class=\"radarmap\">").concat(base).concat(over, "<i class=\"radarpin\" style=\"left:").concat(g.mx, "%;top:").concat(g.my, "%\"></i></div></div>\n    <p class=\"muted small\">Pluie en bleu (plus fonc\u00E9 = plus intense) \u00B7 ").concat(esc(c.name), " au centre \u00B7 images toutes les 10 minutes \u00B7 \u00A9 RainViewer, \u00A9 OpenStreetMap, \u00A9 CARTO</p></div>");
+        }
+        function setFrame(i) {
+            radarIdx = i;
+            var f = radar.frames[i];
+            $$("#content .ro").forEach(function (im) {
+                im.src = radarUrl(f, +im.dataset.x, +im.dataset.y);
+            });
+            var t2 = $("#radarTime");
+            if (t2)
+                t2.textContent = new Date(f.time * 1e3).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+        }
+        function agendaHTML() {
+            var now = /* @__PURE__ */ new Date(), day0 = new Date(now.getFullYear(), now.getMonth(), now.getDate()), day1 = new Date(day0.getTime() + 864e5);
+            var evs = t("family_events").filter(function (e) { return e.starts_at && new Date(e.starts_at) >= day0 && new Date(e.starts_at) < day1; }).sort(function (a, b) { return a.starts_at.localeCompare(b.starts_at); });
+            var meals = t("meal_plans").filter(function (p) { return p.meal_date === ymd(now); }).sort(function (a, b) { return (a.meal_type === "midi" ? -1 : 1) - (b.meal_type === "midi" ? -1 : 1); });
+            return "<div class=\"card glass\"><h3 class=\"script\">Agenda du jour</h3>\n    ".concat(evs.map(function (e) { return "<div class=\"row\"><span class=\"dot p".concat(pIndex(e.owner), "\"></span><span class=\"grow\"><b>").concat(esc(e.title), "</b>").concat(e.owner ? " <small class=\"muted\">".concat(esc(e.owner), "</small>") : "", "<br><small>").concat(esc(fmtTime(e.starts_at))).concat(e.notes ? " \xB7 " + esc(String(e.notes).slice(0, 60)) : "", "</small></span></div>"); }).join("") || '<p class="muted">Aucun rendez-vous aujourd\u2019hui.</p>', "\n    ").concat(meals.length ? '<h4 class="subh">\xC0 table</h4>' + meals.map(function (m) { return "<div class=\"row\"><span class=\"chip\">".concat(m.meal_type === "midi" ? "D\xE9jeuner" : "D\xEEner", "</span><b class=\"grow\">").concat(esc(m.title || ""), "</b></div>"); }).join("") : "", "\n    <button class=\"btn small\" data-go=\"agenda\">Ouvrir l\u2019agenda</button></div>");
+        }
+        function newsHTML() {
+            var c = nw.read(), list = c && c.sections && c.sections["\xC0 la une"] || [];
+            return "<div class=\"card glass\"><h3 class=\"script\">Actualit\u00E9</h3>\n    ".concat(list.slice(0, 6).map(function (i) { return "<p class=\"dnews\"><a href=\"".concat(esc(i.link || "#"), "\" target=\"_blank\" rel=\"noopener\"><b>").concat(esc(i.title), "</b></a><br><small class=\"muted\">").concat(esc(i.src || ""), "</small></p>"); }).join("") || '<p class="muted">Chargement des titres du jour\u2026</p>', "\n    <button class=\"btn small\" data-go=\"news\">Toute l\u2019actualit\u00E9</button></div>");
+        }
+        var dashboard = {
+            html: function () {
+                return "<div class=\"dash\"><div class=\"dashwx\">".concat(weatherHTML(), "</div><div class=\"dashradar\">").concat(radarHTML(), "</div><div class=\"grid2\"><div>").concat(agendaHTML(), "</div><div>").concat(newsHTML(), "</div></div></div>");
+            },
+            bind: function (root, rerender, go) {
+                var _this = this;
+                var redraw = function () {
+                    var y = window.pageYOffset;
+                    rerender();
+                    window.scrollTo(0, y);
+                };
+                $$("[data-go]", root).forEach(function (b) { return b.onclick = function () { return go(b.dataset.go); }; });
+                var form = $("#cityForm", root);
+                if (form) {
+                    form.onsubmit = function (e) { return __awaiter(_this, void 0, void 0, function () {
+                        var q, err_18;
+                        return __generator(this, function (_d) {
+                            switch (_d.label) {
+                                case 0:
+                                    e.preventDefault();
+                                    q = $("#cityQ", root).value.trim();
+                                    if (!q)
+                                        return [2 /*return*/];
+                                    _d.label = 1;
+                                case 1:
+                                    _d.trys.push([1, 3, , 4]);
+                                    return [4 /*yield*/, geocode(q)];
+                                case 2:
+                                    cityResults = _d.sent();
+                                    return [3 /*break*/, 4];
+                                case 3:
+                                    err_18 = _d.sent();
+                                    toast("Recherche impossible : " + err_18.message, "err");
+                                    return [2 /*return*/];
+                                case 4:
+                                    redraw();
+                                    return [2 /*return*/];
+                            }
+                        });
+                    }); };
+                    var cq = $("#cityQ", root);
+                    if (cq && !cityResults)
+                        cq.focus();
+                }
+                $$("[data-city]", root).forEach(function (b) { return b.onclick = function () {
+                    var r = cityResults[+b.dataset.city];
+                    jset(CITY_KEY, { name: r.name, lat: r.lat, lon: r.lon });
+                    cityResults = null;
+                    wx = null;
+                    wxError = "";
+                    var p = loadWeather(true);
+                    redraw();
+                    p.then(redraw);
+                }; });
+                var cc = $("#cityChange", root);
+                if (cc)
+                    cc.onclick = function () {
+                        cityResults = [];
+                        redraw();
+                    };
+                var cx = $("#cityCancel", root);
+                if (cx)
+                    cx.onclick = function () {
+                        cityResults = null;
+                        redraw();
+                    };
+                var rf = $("#wxRefresh", root);
+                if (rf)
+                    rf.onclick = function () {
+                        var p = loadWeather(true);
+                        redraw();
+                        p.then(redraw);
+                    };
+                if (city() && !cityResults && !wxLoading && !(wxError && Date.now() - lastTry < 6e4)) {
+                    var p = loadWeather(false);
+                    if (wxLoading) {
+                        var q = p;
+                        setTimeout(redraw, 0);
+                        q.then(function (ok) {
+                            if (ok || wxError)
+                                redraw();
+                        });
+                    }
+                }
+                clearInterval(radarTimer);
+                var rr = $("#radarRetry", root);
+                if (rr)
+                    rr.onclick = function () {
+                        radar = null;
+                        radarErr = "";
+                        loadRadar().then(redraw);
+                    };
+                var rp = $("#radarPlay", root);
+                if (rp)
+                    rp.onclick = function () {
+                        if (radarTimer) {
+                            clearInterval(radarTimer);
+                            radarTimer = null;
+                            rp.textContent = "Animer (2 h)";
+                            return;
+                        }
+                        rp.textContent = "Pause";
+                        var i = 0;
+                        setFrame(0);
+                        radarTimer = setInterval(function () {
+                            if (!$("#radarPlay")) {
+                                clearInterval(radarTimer);
+                                radarTimer = null;
+                                return;
+                            }
+                            i = (i + 1) % radar.frames.length;
+                            setFrame(i);
+                        }, 800);
+                    };
+                if ((!radar || Date.now() - radar.at > 5 * 60 * 1e3) && Date.now() - radarTry >= 6e4) {
+                    radarTry = Date.now();
+                    loadRadar().then(function (ok) {
+                        if (ok || radarErr)
+                            redraw();
+                    });
+                }
+                var nc = nw.read();
+                if (!nc || nc.slot !== nw.slotOf(/* @__PURE__ */ new Date()))
+                    nw.refresh(false).then(function (ok) {
+                        if (ok)
+                            redraw();
+                    });
+            }
+        };
+        return { dashboard: dashboard };
     })();
     __m.misc = (function () {
         var _d = __m.util, $ = _d.$, $$ = _d.$$, esc = _d.esc, toast = _d.toast, formDialog = _d.formDialog, openModal = _d.openModal, closeModal = _d.closeModal, ymd = _d.ymd, parseYmd = _d.parseYmd, addDays = _d.addDays, fmtLong = _d.fmtLong, fmtTime = _d.fmtTime, toLocalInput = _d.toLocalInput, PEOPLE = _d.PEOPLE;
@@ -5199,6 +5539,7 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
             maison: '<polygon points="30,98 150,98 150,200 30,200" fill="#f4ecd9"/><polygon points="150,98 190,112 190,200 150,200" fill="#dccfb2"/><polygon points="20,98 90,36 160,98" fill="#2d5b4e"/><polygon points="90,36 160,98 190,112 110,40" fill="#234a3f"/><polygon points="72,36 108,36 108,10 94,10" fill="#2d5b4e" opacity="0"/><rect x="48" y="124" width="26" height="34" rx="3" fill="#e8c76c"/><rect x="104" y="124" width="26" height="34" rx="3" fill="#e8c76c"/><polygon points="74,200 74,158 100,158 100,200" fill="#2d5b4e"/><polygon points="76,62 102,62 102,86 76,86" fill="#e8c76c"/>'
         };
         var TILES = [
+            ["dashboard", "Tableau de bord", "agenda", "#cfe3f7", "#8fb7e3"],
             ["recipes", "Recettes", "recettes", "#faf0b0", "#f4e08e"],
             ["menus", "Planning", "menu", "#f3b3a4", "#e5806f"],
             ["courses", "Courses", "courses", "#c6edd8", "#8fc3a6"],
@@ -5302,20 +5643,26 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
         }
         function spotifyInfo(raw) {
             var t2 = String(raw || "").trim();
+            var d = t2.match(/deezer\.com\/(?:[a-z]{2}(?:-[a-z]{2})?\/)?(playlist|album|track|artist|show|episode)\/(\d+)/);
+            if (d)
+                return { service: "Deezer", type: d[1], id: d[2], web: "https://www.deezer.com/".concat(d[1], "/").concat(d[2]), embed: "https://widget.deezer.com/widget/auto/".concat(d[1], "/").concat(d[2]) };
+            d = t2.match(/https?:\/\/(?:link\.deezer\.com|deezer\.page\.link)\/\S+/);
+            if (d)
+                return { service: "Deezer", type: "short", web: d[0] };
             var m = t2.match(/open\.spotify\.com\/(?:intl-[a-z]+\/)?(?:embed\/)?(playlist|album|track|artist|show|episode)\/([A-Za-z0-9]{10,30})/) || t2.match(/spotify:(playlist|album|track|artist|show|episode):([A-Za-z0-9]{10,30})/);
             if (m)
-                return { type: m[1], id: m[2], web: "https://open.spotify.com/".concat(m[1], "/").concat(m[2]), embed: "https://open.spotify.com/embed/".concat(m[1], "/").concat(m[2]) };
+                return { service: "Spotify", type: m[1], id: m[2], web: "https://open.spotify.com/".concat(m[1], "/").concat(m[2]), embed: "https://open.spotify.com/embed/".concat(m[1], "/").concat(m[2]) };
             if (/^[A-Za-z0-9]{22}$/.test(t2))
-                return { type: "playlist", id: t2, web: "https://open.spotify.com/playlist/".concat(t2), embed: "https://open.spotify.com/embed/playlist/".concat(t2) };
+                return { service: "Spotify", type: "playlist", id: t2, web: "https://open.spotify.com/playlist/".concat(t2), embed: "https://open.spotify.com/embed/playlist/".concat(t2) };
             m = t2.match(/https?:\/\/(?:spotify\.link|spoti\.fi)\/\S+/);
-            return m ? { type: "short", web: m[0] } : null;
+            return m ? { service: "Spotify", type: "short", web: m[0] } : null;
         }
         var music = {
             html: function () {
-                return "<div class=\"bar\"><span class=\"muted\">\u00AB \u00C9couter \u00BB lance la playlist ici ; \u00AB Spotify \u00BB l\u2019ouvre dans l\u2019appli. Pour une playlist priv\u00E9e, connectez-vous \u00E0 Spotify dans ce navigateur.</span><span class=\"grow\"></span><button class=\"btn primary\" id=\"addPl\">\uFF0B Playlist</button></div>\n      <div class=\"plgrid\">".concat(t("playlists").map(function (p) {
+                return "<div class=\"bar\"><span class=\"muted\">Collez un lien Spotify ou Deezer. \u00AB \u00C9couter \u00BB lance la playlist ici ; le bouton \u00E0 droite l\u2019ouvre dans l\u2019appli ou le site du service.</span><span class=\"grow\"></span><button class=\"btn primary\" id=\"addPl\">\uFF0B Playlist</button></div>\n      <div class=\"plgrid\">".concat(t("playlists").map(function (p) {
                     var i = spotifyInfo(p.spotify_url);
-                    return "<div class=\"card glass pl\"><span class=\"ico\"></span><div class=\"grow\"><b>".concat(esc(p.title), "</b><br><small>").concat(esc(p.owner || "Famille")).concat(i ? "" : " \xB7 lien non reconnu", "</small></div>").concat(i && i.embed ? "<button class=\"btn primary small\" data-play=\"".concat(p.id, "\">\u00C9couter</button>") : "", "<a class=\"btn small\" href=\"").concat(esc(i ? i.web : p.spotify_url), "\">Spotify \u2197</a><button class=\"iconbtn\" data-edit=\"").concat(p.id, "\" aria-label=\"Modifier\">\u22EF</button></div>");
-                }).join("") || '<div class="empty">Ajoutez le lien de vos playlists Spotify.</div>', "</div>");
+                    return "<div class=\"card glass pl\"><span class=\"ico\"></span><div class=\"grow\"><b>".concat(esc(p.title), "</b><br><small>").concat(esc(p.owner || "Famille")).concat(i ? "" : " \xB7 lien non reconnu", "</small></div>").concat(i && i.embed ? "<button class=\"btn primary small\" data-play=\"".concat(p.id, "\">\u00C9couter</button>") : "", "<a class=\"btn small\" href=\"").concat(esc(i ? i.web : p.spotify_url), "\">").concat(i ? i.service : "Lien", " \u2197</a><button class=\"iconbtn\" data-edit=\"").concat(p.id, "\" aria-label=\"Modifier\">\u22EF</button></div>");
+                }).join("") || '<div class="empty">Ajoutez le lien de vos playlists Spotify ou Deezer.</div>', "</div>");
             },
             bind: function (root) {
                 var _this = this;
@@ -5324,7 +5671,7 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                     return formDialog({
                         title: p.id ? "Modifier la playlist" : "Nouvelle playlist",
                         values: __spreadValues({ owner: "Famille" }, p),
-                        fields: [{ name: "title", label: "Nom", required: true, full: true }, { name: "spotify_url", label: "Lien Spotify", required: true, full: true, placeholder: "https://open.spotify.com/playlist/\u2026", hint: "Dans Spotify : \u22EF \u203A Partager \u203A Copier le lien de la playlist" }, { name: "owner", label: "\xC0 qui", type: "select", options: PEOPLE }],
+                        fields: [{ name: "title", label: "Nom", required: true, full: true }, { name: "spotify_url", label: "Lien Spotify ou Deezer", required: true, full: true, placeholder: "https://open.spotify.com/playlist/\u2026 ou https://www.deezer.com/fr/playlist/\u2026", hint: "Spotify : \u22EF \u203A Partager \u203A Copier le lien. Deezer : Partager \u203A Copier le lien." }, { name: "owner", label: "\xC0 qui", type: "select", options: PEOPLE }],
                         danger: p.id ? { label: "Supprimer", confirm: "Supprimer cette playlist ?", run: function () { return db.del("playlists", p.id); } } : null,
                         onSubmit: function (v) { return __awaiter(_this, void 0, void 0, function () {
                             var i;
@@ -5333,7 +5680,7 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                                     case 0:
                                         i = spotifyInfo(v.spotify_url);
                                         if (!i)
-                                            throw new Error("Lien Spotify non reconnu : collez le lien \xAB Copier le lien de la playlist \xBB.");
+                                            throw new Error("Lien non reconnu : collez un lien de playlist Spotify ou Deezer.");
                                         v.spotify_url = i.web;
                                         if (!p.id) return [3 /*break*/, 2];
                                         return [4 /*yield*/, db.patch("playlists", p.id, v)];
@@ -5352,7 +5699,7 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                 };
                 var play = function (p) {
                     var i = spotifyInfo(p.spotify_url);
-                    openModal("<h2 class=\"script\">".concat(esc(p.title), "</h2><iframe class=\"spframe\" src=\"").concat(esc(i.embed), "\" width=\"100%\" height=\"380\" frameborder=\"0\" allow=\"autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture\" loading=\"lazy\"></iframe><div class=\"formactions\"><a class=\"btn\" href=\"").concat(esc(i.web), "\">Ouvrir dans Spotify \u2197</a><span class=\"grow\"></span><button class=\"btn primary\" data-close>Fermer</button></div>"), { wide: true, onMount: function (r) {
+                    openModal("<h2 class=\"script\">".concat(esc(p.title), "</h2><iframe class=\"spframe\" src=\"").concat(esc(i.embed), "\" width=\"100%\" height=\"").concat(i.service === "Deezer" ? 300 : 380, "\" frameborder=\"0\" allow=\"autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture\" loading=\"lazy\"></iframe><div class=\"formactions\"><a class=\"btn\" href=\"").concat(esc(i.web), "\">Ouvrir dans ").concat(i.service, " \u2197</a><span class=\"grow\"></span><button class=\"btn primary\" data-close>Fermer</button></div>"), { wide: true, onMount: function (r) {
                             $("[data-close]", r).onclick = closeModal;
                         } });
                 };
@@ -5418,8 +5765,10 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
         var courses = __m.courses;
         var _e = __m.news, news = _e.news, stopReading = _e.stopReading;
         var _f = __m.misc, home = _f.home, agenda = _f.agenda, music = _f.music, homebook = _f.homebook;
+        var dashboard = __m.dashboard.dashboard;
         var PAGES = {
             home: { icon: "", label: "Accueil", title: "Bonjour \xE0 tous", mod: home, tables: ["meal_plans", "family_events", "shopping_items", "recipes", "cellar_items"] },
+            dashboard: { icon: "", label: "Tableau de bord", title: "Le tableau de bord", mod: dashboard, tables: ["family_events", "meal_plans"] },
             recipes: { icon: "", label: "Recettes", title: "Le carnet de recettes", mod: recipes, tables: ["recipes"] },
             menus: { icon: "", label: "Planning de la semaine", title: "Le planning des repas", mod: menus, tables: ["meal_plans", "recipes"] },
             courses: { icon: "", label: "Liste de courses", title: "La liste de courses", mod: courses, tables: ["shopping_items"] },
@@ -5500,7 +5849,7 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
         }
         function enter(user) {
             return __awaiter(this, void 0, void 0, function () {
-                var e_40, missing;
+                var e_42, missing;
                 return __generator(this, function (_d) {
                     switch (_d.label) {
                         case 0:
@@ -5526,10 +5875,10 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                             db.startRealtime();
                             return [3 /*break*/, 5];
                         case 4:
-                            e_40 = _d.sent();
-                            console.error(e_40);
-                            missing = /relation|does not exist|schema cache|permission|42P01|PGRST/i.test(e_40.message || "");
-                            $("#banner").innerHTML = "<div class=\"card glass warn\"><b>Impossible de charger les donn\u00E9es.</b> ".concat(missing ? "Les tables ne sont pas pr\xEAtes : ex\xE9cutez <code>supabase/002_family_sync.sql</code> dans le SQL Editor de Supabase." : esc(e_40.message || ""), "</div>");
+                            e_42 = _d.sent();
+                            console.error(e_42);
+                            missing = /relation|does not exist|schema cache|permission|42P01|PGRST/i.test(e_42.message || "");
+                            $("#banner").innerHTML = "<div class=\"card glass warn\"><b>Impossible de charger les donn\u00E9es.</b> ".concat(missing ? "Les tables ne sont pas pr\xEAtes : ex\xE9cutez <code>supabase/002_family_sync.sql</code> dans le SQL Editor de Supabase." : esc(e_42.message || ""), "</div>");
                             db.startRealtime();
                             return [3 /*break*/, 5];
                         case 5: return [2 /*return*/];

@@ -306,6 +306,19 @@ main.sheet { position: relative; background: var(--sheet); border-radius: 38px 3
 .rtable td{padding:7px 8px;border-bottom:1px solid rgba(0,0,0,.08);vertical-align:top}
 @media print{.bar,.stats,.toolbar,header,nav,.tabbar{display:none!important}}
 
+/* Tableau de bord */
+.wxhead{display:-webkit-flex;display:flex;-webkit-align-items:center;align-items:center;margin-bottom:6px}.wxhead .btn{margin-left:8px}
+.wxnow{display:-webkit-flex;display:flex;-webkit-align-items:center;align-items:center;margin:8px 0 14px}.wxnow>div{margin-left:14px}
+.wxnow .wxi{margin:0;-webkit-flex:0 0 auto;flex:0 0 auto}
+.wxtemp{font-size:2.6rem;line-height:1.1}
+.wxhours{display:-webkit-flex;display:flex;overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:8px}
+.wxh{-webkit-flex:0 0 auto;flex:0 0 auto;width:64px;text-align:center;padding:8px 4px;margin-right:6px;border-radius:14px;background:rgba(255,255,255,.45)}
+.wxh small,.wxh b{display:block}.wxi{display:block;margin:2px auto}
+.dash .card{margin-bottom:16px}.dnews{margin:0 0 10px}.dnews a{color:inherit;text-decoration:none}.subh{margin:14px 0 6px}
+.radar{max-width:560px;margin:0 auto}.radarmap{position:relative;width:100%;padding-bottom:100%;overflow:hidden;border-radius:16px;background:#e8e8e8}
+.rt{position:absolute;width:33.3334%;height:33.3334%;display:block}.ro{opacity:.75}
+.radarpin{position:absolute;width:12px;height:12px;margin:-6px 0 0 -6px;border-radius:50%;background:#d33a3a;border:2px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,.3)}
+.radarbar{display:-webkit-flex;display:flex;-webkit-align-items:center;align-items:center;margin-bottom:8px}
 /* LEGACY-FALLBACK : généré (iOS 9 : pas de grille CSS ni de « gap » sur flex). Classes posées par compat.js */
 .nogap .btn > * + *{margin-left:6px}
 .nogap .bar > *{margin-right:10px;margin-bottom:10px}
