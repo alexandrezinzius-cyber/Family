@@ -298,3 +298,65 @@ main.sheet { position: relative; background: var(--sheet); border-radius: 38px 3
 .chip.drink { white-space: nowrap; } .chip.drink i, .drinkline i, .ddot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
 .drinkline { padding: 4px 0; } .cavetemp { margin: 6px 0 10px; font-size: 1.05em; }
 .servings { margin: 8px 0; display: -webkit-box; display: flex; align-items: center; } .servings b { margin: 0 8px; min-width: 1.4em; text-align: center; } .servings .btn.sm { padding: 2px 12px; min-height: 32px; margin: 0 4px; } .servings span { margin-right: 6px; }
+
+/* Récapitulatif cave */
+.recap{overflow-x:auto}
+.rtable{width:100%;border-collapse:collapse;font-size:.95rem}
+.rtable th{text-align:left;padding:6px 8px;border-bottom:2px solid rgba(0,0,0,.15);font-size:.8rem;text-transform:uppercase;letter-spacing:.04em}
+.rtable td{padding:7px 8px;border-bottom:1px solid rgba(0,0,0,.08);vertical-align:top}
+@media print{.bar,.stats,.toolbar,header,nav,.tabbar{display:none!important}}
+
+/* LEGACY-FALLBACK : généré (iOS 9 : pas de grille CSS ni de « gap » sur flex). Classes posées par compat.js */
+.nogap .btn > * + *{margin-left:6px}
+.nogap .bar > *{margin-right:10px;margin-bottom:10px}
+.nogap .seg > * + *{margin-left:2px}
+.nogap .chips > *{margin-right:8px;margin-bottom:8px}
+.nogap .field > * + *{margin-top:5px}
+.nogap .field.check > * + *{margin-left:10px}
+.nogap .toolbar > * + *{margin-left:10px}
+.nogap .inlineform > * + *{margin-left:8px}
+.nogap #nav > * + *{margin-top:4px}
+.nogap #nav button > * + *{margin-left:12px}
+.nogap .sidefoot > * + *{margin-top:8px}
+.nogap .tile > * + *{margin-top:2px}
+.nogap .row > * + *{margin-left:12px}
+.nogap .sectionhead > * + *{margin-left:10px}
+.nogap .legend > *{margin-right:12px;margin-bottom:12px}
+.nogap .rbody > * + *{margin-top:2px}
+.nogap .daycard > * + *{margin-top:8px}
+.nogap .meal > * + *{margin-top:4px}
+.nogap .mrow > * + *{margin-left:8px}
+.nogap .prow > * + *{margin-left:12px}
+.nogap .shopitem > * + *{margin-left:12px}
+.nogap .day > * + *{margin-top:4px}
+.nogap .dots > * + *{margin-left:3px}
+.nogap .pl > * + *{margin-left:12px}
+.nogap .formactions > * + *{margin-left:10px}
+.nogap .detailhead > * + *{margin-left:16px}
+.nogap .kv > * + *{margin-left:16px}
+.nogap .loginbox form > * + *{margin-top:14px}
+.nogap .prow2 > * + *{margin-left:8px}
+.nogap .topbar > * + *{margin-left:10px}
+.nogap .pill > * + *{margin-left:10px}
+.nogap .floatnav > * + *{margin-left:4px}
+.nogap #nav.menupop > * + *{margin-top:2px}
+.nogap #nav.menupop button > * + *{margin-left:12px}
+.nogap .newsbar > *{margin-right:8px;margin-bottom:8px}
+.nogap .newslist > * + *{margin-top:12px}
+.nogap .news > * + *{margin-left:14px}
+.nogap .scanbtns > *{margin-right:8px;margin-bottom:8px}
+.nogrid .fields,.nogrid .stats,.nogrid .grid2,.nogrid .tiles,.nogrid .rgrid,.nogrid .week,.nogrid .plgrid,.nogrid .notes,.nogrid .mtiles,.nogrid .two,.nogrid .idea,.nogrid .cave-layout{display:-webkit-flex;display:flex;-webkit-flex-wrap:wrap;flex-wrap:wrap;margin-left:-7px;margin-right:-7px}
+.nogrid .fields>*,.nogrid .stats>*,.nogrid .grid2>*,.nogrid .tiles>*,.nogrid .rgrid>*,.nogrid .week>*,.nogrid .plgrid>*,.nogrid .notes>*,.nogrid .mtiles>*,.nogrid .two>*,.nogrid .idea>*,.nogrid .cave-layout>*{margin:0 7px 14px;box-sizing:border-box;min-width:0}
+.nogrid .fields>*{-webkit-flex:1 1 40%;flex:1 1 40%}.nogrid .fields>.field.full{-webkit-flex-basis:100%;flex-basis:100%}
+.nogrid .stats>*{-webkit-flex:1 1 120px;flex:1 1 120px}
+.nogrid .grid2>*{-webkit-flex:1 1 300px;flex:1 1 300px}
+.nogrid .tiles>*{-webkit-flex:1 1 180px;flex:1 1 180px}
+.nogrid .rgrid>*{-webkit-flex:1 1 200px;flex:1 1 200px;max-width:320px}
+.nogrid .week>*{-webkit-flex:1 1 150px;flex:1 1 150px}
+.nogrid .plgrid>*,.nogrid .notes>*{-webkit-flex:1 1 270px;flex:1 1 270px}
+.nogrid .mtiles>*{-webkit-flex:1 1 40%;flex:1 1 40%}
+.nogrid .two>*{-webkit-flex:1 1 280px;flex:1 1 280px}
+.nogrid .idea>*{-webkit-flex:1 1 240px;flex:1 1 240px}
+.nogrid .cave-layout>*{-webkit-flex:1 1 300px;flex:1 1 300px}
+.nogrid .month{display:block;overflow:hidden}.nogrid .month>*{float:left;width:14.28%;box-sizing:border-box}
+.nogrid .rcard .noimg,.nogrid .day.today span{display:-webkit-flex;display:flex;-webkit-align-items:center;align-items:center;-webkit-justify-content:center;justify-content:center}
