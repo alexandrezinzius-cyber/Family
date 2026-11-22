@@ -5206,6 +5206,67 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
             }
         };
         var timeout = function (p, ms) { return Promise.race([p, new Promise(function (_, rej) { return setTimeout(function () { return rej(new Error("d\xE9lai d\xE9pass\xE9")); }, ms); })]); };
+        var viaProxy = false;
+        var fnName = function () { return window.FN_LABELS || "wine-labels"; };
+        function getJSON(url) {
+            return __awaiter(this, void 0, void 0, function () {
+                var r, e_40, sb, _d, data, error;
+                return __generator(this, function (_e) {
+                    switch (_e.label) {
+                        case 0:
+                            if (!!viaProxy) return [3 /*break*/, 6];
+                            _e.label = 1;
+                        case 1:
+                            _e.trys.push([1, 5, , 6]);
+                            return [4 /*yield*/, timeout(fetch(url), 1e4)];
+                        case 2:
+                            r = _e.sent();
+                            if (!r.ok) return [3 /*break*/, 4];
+                            return [4 /*yield*/, r.json()];
+                        case 3: return [2 /*return*/, _e.sent()];
+                        case 4: return [3 /*break*/, 6];
+                        case 5:
+                            e_40 = _e.sent();
+                            return [3 /*break*/, 6];
+                        case 6:
+                            sb = db.store.sb;
+                            if (!sb)
+                                throw new Error("Failed to fetch");
+                            return [4 /*yield*/, timeout(sb.functions.invoke(fnName(), { body: { proxy: url } }), 15e3)];
+                        case 7:
+                            _d = _e.sent(), data = _d.data, error = _d.error;
+                            if (error || !data || data.error)
+                                throw new Error("relais indisponible (" + (error && error.message || data && data.error || "vide") + ") : mettez \xE0 jour la fonction " + fnName());
+                            viaProxy = true;
+                            return [2 /*return*/, data];
+                    }
+                });
+            });
+        }
+        var tileCache = {};
+        function proxyTiles(urls) {
+            return __awaiter(this, void 0, void 0, function () {
+                var need, _d, data_1, error;
+                return __generator(this, function (_e) {
+                    switch (_e.label) {
+                        case 0:
+                            need = urls.filter(function (u) { return !tileCache[u]; });
+                            if (!need.length) return [3 /*break*/, 2];
+                            return [4 /*yield*/, timeout(db.store.sb.functions.invoke(fnName(), { body: { tiles: need } }), 25e3)];
+                        case 1:
+                            _d = _e.sent(), data_1 = _d.data, error = _d.error;
+                            if (error || !data_1 || !data_1.tiles)
+                                throw new Error("tuiles indisponibles");
+                            need.forEach(function (u, i) {
+                                if (data_1.tiles[i])
+                                    tileCache[u] = data_1.tiles[i];
+                            });
+                            _e.label = 2;
+                        case 2: return [2 /*return*/, urls.map(function (u) { return tileCache[u] || ""; })];
+                    }
+                });
+            });
+        }
         var KIND = function (c) { return c === 0 ? "sun" : c <= 2 ? "part" : c === 3 ? "cloud" : c <= 48 ? "fog" : c <= 57 ? "drizzle" : c <= 67 ? "rain" : c <= 77 ? "snow" : c <= 82 ? "rain" : c <= 86 ? "snow" : "storm"; };
         var LABEL = { sun: "D\xE9gag\xE9", part: "\xC9claircies", cloud: "Nuageux", fog: "Brouillard", drizzle: "Bruine", rain: "Pluie", snow: "Neige", storm: "Orage" };
         var CLOUD = '<path d="M9 26a6 6 0 0 1 1-11.9A8 8 0 0 1 25.4 13 5.5 5.5 0 0 1 25 26z" fill="#c9d3de"/>';
@@ -5228,16 +5289,11 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
         var city = function () { return jget(CITY_KEY) || DEFAULT_CITY; };
         function geocode(name) {
             return __awaiter(this, void 0, void 0, function () {
-                var r, j;
+                var j;
                 return __generator(this, function (_d) {
                     switch (_d.label) {
-                        case 0: return [4 /*yield*/, timeout(fetch("https://geocoding-api.open-meteo.com/v1/search?count=5&language=fr&name=" + encodeURIComponent(name)), 12e3)];
+                        case 0: return [4 /*yield*/, getJSON("https://geocoding-api.open-meteo.com/v1/search?count=5&language=fr&name=" + encodeURIComponent(name))];
                         case 1:
-                            r = _d.sent();
-                            if (!r.ok)
-                                throw new Error("recherche de ville " + r.status);
-                            return [4 /*yield*/, r.json()];
-                        case 2:
                             j = _d.sent();
                             return [2 /*return*/, (j.results || []).map(function (x) { return ({ name: x.name, region: x.admin1 || "", country: x.country || "", lat: x.latitude, lon: x.longitude }); })];
                     }
@@ -5246,7 +5302,7 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
         }
         function loadWeather(force) {
             return __awaiter(this, void 0, void 0, function () {
-                var c, url, r, j, e_40;
+                var c, url, j, e_41;
                 return __generator(this, function (_d) {
                     switch (_d.label) {
                         case 0:
@@ -5260,29 +5316,24 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                             lastTry = Date.now();
                             _d.label = 1;
                         case 1:
-                            _d.trys.push([1, 4, 5, 6]);
+                            _d.trys.push([1, 3, 4, 5]);
                             url = "https://api.open-meteo.com/v1/forecast?latitude=" + c.lat + "&longitude=" + c.lon + "&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m&hourly=temperature_2m,precipitation_probability,weather_code&daily=temperature_2m_max,temperature_2m_min,sunrise,sunset,precipitation_probability_max&timezone=auto&forecast_days=2&wind_speed_unit=kmh";
-                            return [4 /*yield*/, timeout(fetch(url), 15e3)];
+                            return [4 /*yield*/, getJSON(url)];
                         case 2:
-                            r = _d.sent();
-                            if (!r.ok)
-                                throw new Error("service m\xE9t\xE9o " + r.status);
-                            return [4 /*yield*/, r.json()];
-                        case 3:
                             j = _d.sent();
                             if (!j.hourly || !j.current)
                                 throw new Error("r\xE9ponse m\xE9t\xE9o incompl\xE8te");
                             wx = { key: c.lat + "," + c.lon, at: Date.now(), j: j };
                             jset(WX_KEY, wx);
                             return [2 /*return*/, true];
-                        case 4:
-                            e_40 = _d.sent();
-                            wxError = e_40.message || "erreur";
+                        case 3:
+                            e_41 = _d.sent();
+                            wxError = e_41.message || "erreur";
                             return [2 /*return*/, false];
-                        case 5:
+                        case 4:
                             wxLoading = false;
                             return [7 /*endfinally*/];
-                        case 6: return [2 /*return*/];
+                        case 5: return [2 /*return*/];
                     }
                 });
             });
@@ -5318,7 +5369,7 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
         var radarTry = 0, radar = null, radarErr = "", radarIdx = -1, radarTimer = null;
         function loadRadar() {
             return __awaiter(this, void 0, void 0, function () {
-                var r, j, past, e_41;
+                var j, past, e_42;
                 return __generator(this, function (_d) {
                     switch (_d.label) {
                         case 0:
@@ -5326,14 +5377,9 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                                 return [2 /*return*/, false];
                             _d.label = 1;
                         case 1:
-                            _d.trys.push([1, 4, , 5]);
-                            return [4 /*yield*/, timeout(fetch("https://api.rainviewer.com/public/weather-maps.json"), 12e3)];
+                            _d.trys.push([1, 3, , 4]);
+                            return [4 /*yield*/, getJSON("https://api.rainviewer.com/public/weather-maps.json")];
                         case 2:
-                            r = _d.sent();
-                            if (!r.ok)
-                                throw new Error("service radar " + r.status);
-                            return [4 /*yield*/, r.json()];
-                        case 3:
                             j = _d.sent(), past = j.radar && j.radar.past || [];
                             if (!past.length)
                                 throw new Error("aucune image radar");
@@ -5341,12 +5387,12 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                             radarErr = "";
                             radarIdx = radar.frames.length - 1;
                             return [2 /*return*/, true];
-                        case 4:
-                            e_41 = _d.sent();
-                            radarErr = e_41.message || "erreur";
+                        case 3:
+                            e_42 = _d.sent();
+                            radarErr = e_42.message || "erreur";
                             radar = radar || null;
                             return [2 /*return*/, false];
-                        case 5: return [2 /*return*/];
+                        case 4: return [2 /*return*/];
                     }
                 });
             });
@@ -5357,6 +5403,7 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
             return { cx: Math.floor(x), cy: Math.floor(y), mx: (x - (Math.floor(x) - 1)) / 3 * 100, my: (y - (Math.floor(y) - 1)) / 3 * 100 };
         }
         var radarUrl = function (f, x, y) { return "".concat(radar.host).concat(f.path, "/256/").concat(Z, "/").concat(x, "/").concat(y, "/2/1_0.png"); };
+        var baseUrl = function (x, y) { return "https://a.basemaps.cartocdn.com/light_all/".concat(Z, "/").concat(x, "/").concat(y, ".png"); };
         function radarHTML() {
             var c = city(), g = tileGeo(c), head = "<h3 class=\"script\">Radar de pr\u00E9cipitations</h3>";
             if (!radar)
@@ -5366,21 +5413,56 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
             for (var j = 0; j < 3; j++)
                 for (var i = 0; i < 3; i++) {
                     var x = g.cx - 1 + i, y = g.cy - 1 + j, st = "left:".concat(i * 33.3333, "%;top:").concat(j * 33.3333, "%");
-                    base += "<img class=\"rt\" style=\"".concat(st, "\" src=\"https://a.basemaps.cartocdn.com/light_all/").concat(Z, "/").concat(x, "/").concat(y, ".png\" alt=\"\">");
-                    over += "<img class=\"rt ro\" data-x=\"".concat(x, "\" data-y=\"").concat(y, "\" style=\"").concat(st, "\" src=\"").concat(esc(radarUrl(f, x, y)), "\" alt=\"\">");
+                    base += "<img class=\"rt rb\" data-x=\"".concat(x, "\" data-y=\"").concat(y, "\" style=\"").concat(st, "\" ").concat(viaProxy ? "" : "src=\"".concat(baseUrl(x, y), "\""), " alt=\"\">");
+                    over += "<img class=\"rt ro\" data-x=\"".concat(x, "\" data-y=\"").concat(y, "\" style=\"").concat(st, "\" ").concat(viaProxy ? "" : "src=\"".concat(esc(radarUrl(f, x, y)), "\""), " alt=\"\">");
                 }
             var time = new Date(f.time * 1e3).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
             return "<div class=\"card glass\">".concat(head, "<div class=\"radarbar\"><b id=\"radarTime\">").concat(esc(time), "</b><span class=\"grow\"></span><button class=\"btn small\" id=\"radarPlay\">Animer (2 h)</button></div>\n    <div class=\"radar\"><div class=\"radarmap\">").concat(base).concat(over, "<i class=\"radarpin\" style=\"left:").concat(g.mx, "%;top:").concat(g.my, "%\"></i></div></div>\n    <p class=\"muted small\">Pluie en bleu (plus fonc\u00E9 = plus intense) \u00B7 ").concat(esc(c.name), " au centre \u00B7 images toutes les 10 minutes \u00B7 \u00A9 RainViewer, \u00A9 OpenStreetMap, \u00A9 CARTO</p></div>");
         }
-        function setFrame(i) {
-            radarIdx = i;
-            var f = radar.frames[i];
-            $$("#content .ro").forEach(function (im) {
-                im.src = radarUrl(f, +im.dataset.x, +im.dataset.y);
+        function setFrame(i, first) {
+            return __awaiter(this, void 0, void 0, function () {
+                var f, ims, urls, bases, res_1, e_43, t2;
+                return __generator(this, function (_d) {
+                    switch (_d.label) {
+                        case 0:
+                            radarIdx = i;
+                            f = radar.frames[i], ims = $$("#content .ro");
+                            if (!viaProxy) return [3 /*break*/, 5];
+                            _d.label = 1;
+                        case 1:
+                            _d.trys.push([1, 3, , 4]);
+                            urls = ims.map(function (im) { return radarUrl(f, +im.dataset.x, +im.dataset.y); }), bases = first ? $$("#content .rb") : [];
+                            return [4 /*yield*/, proxyTiles(urls.concat(bases.map(function (im) { return baseUrl(+im.dataset.x, +im.dataset.y); })))];
+                        case 2:
+                            res_1 = _d.sent();
+                            if (radarIdx !== i)
+                                return [2 /*return*/];
+                            ims.forEach(function (im, k) {
+                                if (res_1[k])
+                                    im.src = res_1[k];
+                            });
+                            bases.forEach(function (im, k) {
+                                if (res_1[ims.length + k])
+                                    im.src = res_1[ims.length + k];
+                            });
+                            return [3 /*break*/, 4];
+                        case 3:
+                            e_43 = _d.sent();
+                            return [3 /*break*/, 4];
+                        case 4: return [3 /*break*/, 6];
+                        case 5:
+                            ims.forEach(function (im) {
+                                im.src = radarUrl(f, +im.dataset.x, +im.dataset.y);
+                            });
+                            _d.label = 6;
+                        case 6:
+                            t2 = $("#radarTime");
+                            if (t2)
+                                t2.textContent = new Date(f.time * 1e3).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+                            return [2 /*return*/];
+                    }
+                });
             });
-            var t2 = $("#radarTime");
-            if (t2)
-                t2.textContent = new Date(f.time * 1e3).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
         }
         function agendaHTML() {
             var now = /* @__PURE__ */ new Date(), day0 = new Date(now.getFullYear(), now.getMonth(), now.getDate()), day1 = new Date(day0.getTime() + 864e5);
@@ -5477,6 +5559,8 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                     }
                 }
                 clearInterval(radarTimer);
+                if (radar && viaProxy && $(".ro", root) && !$(".ro", root).getAttribute("src"))
+                    setFrame(radarIdx < 0 ? radar.frames.length - 1 : radarIdx, true);
                 var rr = $("#radarRetry", root);
                 if (rr)
                     rr.onclick = function () {
@@ -5504,7 +5588,7 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                             }
                             i = (i + 1) % radar.frames.length;
                             setFrame(i);
-                        }, 800);
+                        }, viaProxy ? 1500 : 800);
                     };
                 if ((!radar || Date.now() - radar.at > 5 * 60 * 1e3) && Date.now() - radarTry >= 6e4) {
                     radarTry = Date.now();
@@ -5849,7 +5933,7 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
         }
         function enter(user) {
             return __awaiter(this, void 0, void 0, function () {
-                var e_42, missing;
+                var e_44, missing;
                 return __generator(this, function (_d) {
                     switch (_d.label) {
                         case 0:
@@ -5875,10 +5959,10 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                             db.startRealtime();
                             return [3 /*break*/, 5];
                         case 4:
-                            e_42 = _d.sent();
-                            console.error(e_42);
-                            missing = /relation|does not exist|schema cache|permission|42P01|PGRST/i.test(e_42.message || "");
-                            $("#banner").innerHTML = "<div class=\"card glass warn\"><b>Impossible de charger les donn\u00E9es.</b> ".concat(missing ? "Les tables ne sont pas pr\xEAtes : ex\xE9cutez <code>supabase/002_family_sync.sql</code> dans le SQL Editor de Supabase." : esc(e_42.message || ""), "</div>");
+                            e_44 = _d.sent();
+                            console.error(e_44);
+                            missing = /relation|does not exist|schema cache|permission|42P01|PGRST/i.test(e_44.message || "");
+                            $("#banner").innerHTML = "<div class=\"card glass warn\"><b>Impossible de charger les donn\u00E9es.</b> ".concat(missing ? "Les tables ne sont pas pr\xEAtes : ex\xE9cutez <code>supabase/002_family_sync.sql</code> dans le SQL Editor de Supabase." : esc(e_44.message || ""), "</div>");
                             db.startRealtime();
                             return [3 /*break*/, 5];
                         case 5: return [2 /*return*/];

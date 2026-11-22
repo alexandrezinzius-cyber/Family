@@ -86,10 +86,30 @@ async function priceFor(b: { key: string; url?: string; query?: string }) {
   } catch (e) { return { key: b.key, ok: false, error: String((e as Error).message || e).slice(0, 120) }; }
 }
 
+// Relais pour le tableau de bord (météo, radar) : utile aux vieux appareils (iPad iOS 9) qui n'acceptent plus les certificats d'Open-Meteo / RainViewer.
+const PX = /^(api\.open-meteo\.com|geocoding-api\.open-meteo\.com|api\.rainviewer\.com)$/;
+const TX = /^(tilecache\.rainviewer\.com|[a-d]\.basemaps\.cartocdn\.com)$/;
+async function tileData(url: string) {
+  const u = new URL(url); if (u.protocol !== 'https:' || !TX.test(u.hostname)) return null;
+  const r = await fetch(u, { headers: { 'User-Agent': UA } }); if (!r.ok) return null;
+  const buf = new Uint8Array(await r.arrayBuffer()); let bin = '';
+  for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode(...buf.subarray(i, i + 0x8000));
+  return 'data:' + (r.headers.get('content-type') || 'image/png') + ';base64,' + btoa(bin);
+}
+
 Deno.serve(async req => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
   try {
     const body = await req.json();
+    if (typeof body.proxy === 'string') {
+      const u = new URL(body.proxy); if (u.protocol !== 'https:' || !PX.test(u.hostname)) return json({ error: 'hôte non autorisé' }, 400);
+      const r = await fetch(u, { headers: { 'User-Agent': UA, Accept: 'application/json' } });
+      return new Response(await r.text(), { status: r.status, headers: { ...CORS, 'Content-Type': 'application/json' } });
+    }
+    if (Array.isArray(body.tiles)) {
+      const tiles = await Promise.all(body.tiles.slice(0, 20).map((u: string) => tileData(String(u)).catch(() => null)));
+      return json({ tiles });
+    }
     if (Array.isArray(body.prices)) {
       const results = [];
       for (const b of body.prices.slice(0, 4)) results.push(await priceFor(b));
