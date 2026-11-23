@@ -291,7 +291,7 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
         }
         function compressImage(file_1) {
             return __awaiter(this, arguments, void 0, function (file, max, quality) {
-                var bmp, _d, k, c;
+                var bmp, _d, bw, bh, k, c;
                 if (max === void 0) { max = 1100; }
                 if (quality === void 0) { quality = 0.82; }
                 return __generator(this, function (_e) {
@@ -313,12 +313,11 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                             _e.label = 4;
                         case 4:
                             bmp = _d;
-                            bmp.width = bmp.width || bmp.naturalWidth;
-                            bmp.height = bmp.height || bmp.naturalHeight;
-                            k = Math.min(1, max / Math.max(bmp.width, bmp.height));
+                            bw = bmp.width || bmp.naturalWidth, bh = bmp.height || bmp.naturalHeight;
+                            k = Math.min(1, max / Math.max(bw, bh));
                             c = document.createElement("canvas");
-                            c.width = Math.round(bmp.width * k);
-                            c.height = Math.round(bmp.height * k);
+                            c.width = Math.round(bw * k) || 1;
+                            c.height = Math.round(bh * k) || 1;
                             c.getContext("2d").drawImage(bmp, 0, 0, c.width, c.height);
                             return [2 /*return*/, new Promise(function (res) { return c.toBlob(res, "image/jpeg", quality); })];
                     }
@@ -423,7 +422,8 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
         return { MONTHS: MONTHS, seasonalNames: seasonalNames, scoreRecipe: scoreRecipe };
     })();
     __m.db = (function () {
-        var TABLES = ["cellar_items", "recipes", "meal_plans", "shopping_items", "family_events", "playlists", "family_notes"];
+        var TABLES = ["cellar_items", "recipes", "meal_plans", "shopping_items", "family_events", "playlists", "family_notes", "family_photos"];
+        var OPTIONAL = ["family_photos"];
         var CACHE_KEY = "family-cache-v3";
         var store = {
             sb: null,
@@ -526,7 +526,7 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                             });
                             writeCache();
                             emit("*");
-                            failed = results.find(function (r) { return r.error; });
+                            failed = results.find(function (r, i) { return r.error && OPTIONAL.indexOf(TABLES[i]) < 0; });
                             if (failed)
                                 throw failed.error;
                             return [2 /*return*/];
@@ -2316,10 +2316,220 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
         var importCellar = function () { return importFile("cellar_items", "data/cellar.json"); };
         return { importRecipes: importRecipes, importCellar: importCellar };
     })();
+    __m.drink = (function () {
+        var norm = __m.util.norm;
+        var CAVE_TEMP = 18;
+        var RULES = {
+            Rouge: [
+                [/barolo|barbaresco|brunello|amarone|sassicaia|taurasi/, 8, 25, "grand vin italien"],
+                [/pauillac|saint.?julien|margaux|saint.?estephe|pomerol|pessac|grand cru classe|premier cru classe/, 7, 22, "grand Bordeaux"],
+                [/saint.?emilion|haut.?medoc|medoc|listrac|moulis|graves|fronsac|canon/, 5, 15, "Bordeaux"],
+                [/chambertin|romanee|musigny|echezeaux|clos vougeot|corton|richebourg|grands.?echezeaux/, 8, 25, "grand cru de Bourgogne"],
+                [/gevrey|nuits|vosne|chambolle|volnay|pommard|aloxe|savigny|beaune|morey|santenay|chorey|marsannay|bourgogne/, 4, 12, "Bourgogne"],
+                [/crozes|saint.?joseph/, 3, 10, "Rh\xF4ne nord"],
+                [/hermitage|cote.?rotie|cornas/, 7, 22, "Rh\xF4ne nord (grand)"],
+                [/chateauneuf|gigondas|vacqueyras|vinsobres|rasteau|cairanne/, 4, 14, "Rh\xF4ne sud"],
+                [/cotes du rhone|ventoux|luberon|costieres|lirac|tavel|duche d uzes/, 2, 7, "C\xF4tes-du-Rh\xF4ne"],
+                [/moulin.?a.?vent|morgon|fleurie|brouilly|chiroubles|julienas|chenas|regnie|saint.?amour/, 2, 7, "cru du Beaujolais"],
+                [/beaujolais/, 0, 3, "Beaujolais"],
+                [/chinon|bourgueil|saumur|anjou|touraine|cabernet franc/, 2, 9, "Loire"],
+                [/cahors|madiran|malbec|irouleguy|tursan/, 4, 13, "Sud-Ouest"],
+                [/bergerac|buzet|gaillac|fronton|saint.?mont|marmandais|pecharmant/, 2, 8, "Sud-Ouest"],
+                [/languedoc|minervois|corbieres|fitou|faugeres|saint.?chinian|pic saint.?loup|roussillon|collioure|cotes du roussillon|terrasses du larzac|la clape/, 3, 10, "Languedoc-Roussillon"],
+                [/provence|bandol|cotes de provence|coteaux varois|pierrevert/, 2, 8, "Provence"],
+                [/gran reserva/, 8, 20, "Rioja Gran Reserva"],
+                [/reserva|rioja|ribera|priorat/, 4, 14, "Espagne"],
+                [/chianti|sangiovese|montepulciano|valpolicella|primitivo|nero d avola|rosso|barbera|dolcetto/, 3, 9, "Italie"],
+                [/bordeaux|castillon|cotes de bourg|blaye|entre.?deux.?mers/, 3, 10, "Bordeaux"],
+                [/savoie|mondeuse|arbois|jura/, 2, 7, "Savoie / Jura"],
+                [/alsace|pinot noir/, 2, 7, "Pinot noir"]
+            ],
+            Blanc: [
+                [/montrachet|corton.?charlemagne|meursault|puligny|chassagne/, 5, 16, "grand blanc de Bourgogne"],
+                [/chablis/, 2, 9, "Chablis"],
+                [/pouilly.?fuisse|saint.?veran|macon|vire|bourgogne|rully|montagny|aligote/, 2, 8, "Bourgogne blanc"],
+                [/condrieu|hermitage|saint.?joseph|crozes/, 3, 12, "Rh\xF4ne nord blanc"],
+                [/cotes du rhone|ventoux|luberon|chateauneuf/, 1, 5, "Rh\xF4ne blanc"],
+                [/savennieres|vouvray|montlouis|chenin|coteaux du layon/, 3, 15, "chenin de Loire"],
+                [/sancerre|pouilly.?fume|menetou|quincy|reuilly|sauvignon/, 1, 4, "Sauvignon"],
+                [/muscadet|gros plant/, 1, 5, "Muscadet"],
+                [/riesling|alsace|pinot gris|gewurztraminer|sylvaner|muscat/, 3, 12, "Alsace"],
+                [/vin jaune/, 10, 50, "vin jaune"],
+                [/savagnin|jura|arbois|chateau.?chalon/, 4, 15, "Jura"],
+                [/pessac|graves|haut.?brion|chevalier|sauternes/, 4, 15, "Bordeaux blanc de garde"],
+                [/bordeaux|entre.?deux.?mers/, 1, 5, "Bordeaux blanc"],
+                [/picpoul|gascogne|colombard|igp|pays d oc|vin de france|chardonnay/, 1, 4, "blanc de fra\xEEcheur"],
+                [/languedoc|roussillon|corbieres|minervois/, 1, 6, "Languedoc"],
+                [/provence/, 1, 3, "Provence"]
+            ],
+            "Ros\xE9": [[/bandol/, 1, 4, "ros\xE9 de Bandol"], [/tavel/, 1, 4, "ros\xE9 de Tavel"], [/./, 0, 2, "ros\xE9"]],
+            Effervescent: [
+                [/champagne.*(millesime|vintage|grand cru)|millesime.*champagne|dom perignon|cristal|clicquot la grande|krug/, 5, 18, "champagne mill\xE9sim\xE9"],
+                [/champagne/, 0, 4, "champagne non mill\xE9sim\xE9"],
+                [/cremant|prosecco|cava|asti|blanquette|clairette|petillant|franciacorta|pet nat|mousseux/, 0, 3, "effervescent de fra\xEEcheur"],
+                [/./, 0, 3, "effervescent"]
+            ],
+            Liquoreux: [[/sauternes|barsac|monbazillac|tokaj|jurancon|coteaux du layon|quarts de chaume|bonnezeaux|vendanges tardives|selection de grains/, 6, 30, "grand liquoreux"], [/./, 4, 20, "vin doux"]],
+            "Fortifi\xE9": [[/vintage|colheita/, 15, 50, "porto vintage"], [/lbv|late bottled/, 4, 15, "porto LBV"], [/tawny|ruby|porto|port/, 0, 20, "porto"], [/banyuls|maury|rivesaltes|muscat de/, 3, 25, "vin doux naturel"], [/madere|madeira/, 10, 80, "mad\xE8re"], [/xeres|sherry|jerez|fino|amontillado/, 0, 15, "x\xE9r\xE8s"], [/./, 3, 25, "vin fortifi\xE9"]]
+        };
+        var STATES = {
+            drink: { color: "#2e9e4f", label: "\xC0 consommer", short: "Vert" },
+            keep: { color: "#e8892b", label: "\xC0 conserver", short: "Orange" },
+            past: { color: "#d33a3a", label: "Apr\xE8s apog\xE9e", short: "Rouge" },
+            unknown: { color: "#9aa3a8", label: "Maturit\xE9 inconnue", short: "Gris" }
+        };
+        var years = function (t) { return (String(t || "").match(/(?:19|20)\d{2}/g) || []).map(Number); };
+        function drinkStatus(b, now) {
+            if (now === void 0) { now = new Date(); }
+            var year = now.getFullYear();
+            if (!b || b.wine_type === "Spiritueux" || b.category === "Spiritueux")
+                return __spreadProps(__spreadValues({ state: "unknown" }, STATES.unknown), { label: "Se conserve", why: "Spiritueux : pas d\u2019\xE9volution en bouteille ferm\xE9e." });
+            var vintage = Number(b.vintage) || null;
+            var type = RULES[b.wine_type] ? b.wine_type : "Rouge";
+            var text = norm([b.name, b.producer, b.region, b.country, b.notes].join(" ")).replace(/[^a-z0-9 ]/g, " ");
+            var from, to, why;
+            var w = years(b.drinking_window);
+            if (w.length >= 2) {
+                var base2 = vintage || w[0];
+                from = w[0] - base2;
+                to = w[1] - base2;
+                why = "Fen\u00EAtre indiqu\u00E9e sur la fiche : ".concat(w[0], "\u2013").concat(w[1], ".");
+            }
+            else if (w.length === 1 && vintage) {
+                from = 0;
+                to = w[0] - vintage;
+                why = "\u00C0 boire avant ".concat(w[0], " (fiche).");
+            }
+            else {
+                var rule = RULES[type].find(function (r) { return r[0].test(text); }) || __spreadArray([null], __read({ Rouge: [3, 8, "rouge"], Blanc: [2, 5, "blanc"] }[type] || [2, 8, "vin"]), false);
+                from = rule[1];
+                to = rule[2];
+                why = "Estimation : ".concat(rule[3], " (").concat(from, "\u2013").concat(to, " ans apr\u00E8s le mill\u00E9sime).");
+                if (!vintage && type === "Effervescent" && b.acquired_on)
+                    vintage = Number(String(b.acquired_on).slice(0, 4)) || null;
+            }
+            if (!vintage)
+                return __spreadProps(__spreadValues({ state: "unknown" }, STATES.unknown), { why: "Mill\xE9sime inconnu : impossible d\u2019estimer la maturit\xE9." });
+            var age = year - vintage, ready = vintage + from, end = vintage + to, peak = Math.round(vintage + from + (to - from) * 0.45);
+            var base = { from: ready, to: end, peak: peak, age: age, why: why };
+            if (age < from)
+                return __spreadProps(__spreadValues(__spreadValues({ state: "keep" }, STATES.keep), base), { detail: "\u00C0 garder jusqu\u2019en ".concat(ready, " (apog\u00E9e vers ").concat(peak, ").") });
+            if (age > to)
+                return __spreadProps(__spreadValues(__spreadValues({ state: "past" }, STATES.past), base), { detail: "Apog\u00E9e d\u00E9pass\u00E9e depuis ".concat(end, " : \u00E0 boire sans attendre.") });
+            return __spreadProps(__spreadValues(__spreadValues({ state: "drink" }, STATES.drink), base), { label: to - age <= 1 && to > from ? "\xC0 consommer vite" : "\xC0 consommer", detail: "Pr\u00EAt jusqu\u2019en ".concat(end, " (apog\u00E9e vers ").concat(peak, ").") });
+        }
+        var drinkSummary = function (list) { return list.reduce(function (o, b) {
+            var s = drinkStatus(b).state;
+            o[s] = (o[s] || 0) + (Number(b.quantity) || 1);
+            return o;
+        }, { drink: 0, keep: 0, past: 0, unknown: 0 }); };
+        return { CAVE_TEMP: CAVE_TEMP, STATES: STATES, drinkStatus: drinkStatus, drinkSummary: drinkSummary };
+    })();
+    __m.pairing = (function () {
+        var _d = __m.util, esc = _d.esc, openModal = _d.openModal, closeModal = _d.closeModal, norm = _d.norm;
+        var db = __m.db;
+        var drinkStatus = __m.drink.drinkStatus;
+        var RULES = [
+            [/huitre|moule|coquillage|fruits de mer|crevette|langoustine|homard|crabe|saint jacques|coquille|bulot|palourde/, "Poisson ou fruits de mer : un blanc sec et vif, ou des bulles.", { Blanc: 3, Effervescent: 2.5, "Ros\xE9": 0.5 }, /chablis|muscadet|sancerre|picpoul|riesling|sauvignon|champagne|cremant|entre.?deux|bourgogne aligote|menetou|pouilly|albarino|vermentino/, /poisson|fruits de mer|coquillage|huitre|crustace/],
+            [/saumon|truite|thon|cabillaud|colin|merlu|bar |daurade|sole|lotte|poisson|haddock|sardine|maquereau|lieu|raie|turbot|morue/, "Poisson : plut\xF4t un blanc sec ; un ros\xE9 ou un rouge l\xE9ger convient au saumon et au thon.", { Blanc: 3, "Ros\xE9": 1.5, Rouge: 0.3 }, /chablis|muscadet|sancerre|chenin|vouvray|saumur|savennieres|riesling|macon|pouilly|viognier|chardonnay|pinot noir|bourgogne blanc|alsace/, /poisson|saumon|thon/],
+            [/poulet|dinde|pintade|volaille|lapin|chapon|escalope|supreme|cuisse/, "Volaille : un blanc ample et rond, ou un rouge l\xE9ger et fruit\xE9.", { Blanc: 2, Rouge: 2, "Ros\xE9": 1 }, /chardonnay|bourgogne|macon|viognier|pinot noir|beaujolais|loire|cotes du rhone|chinon|saumur|gamay|cote de/, /volaille|poulet|blanche/],
+            [/canard|magret|confit|oie/, "Canard : un rouge fruit\xE9 et souple, ou un blanc moelleux sur le foie gras.", { Rouge: 3, Blanc: 0.5 }, /pinot noir|bourgogne|madiran|cahors|cotes du rhone|saint.?joseph|gamay|beaujolais|fronton|bergerac/, /canard|volaille|magret/],
+            [/boeuf|bœuf|steak|entrecote|bavette|cote de boeuf|rumsteck|bourguignon|daube|carbonnade|osso|joue|souris|agneau|gigot|mouton|gibier|sanglier|cerf|biche|chevreuil|civet|rosbif|hachis|burger|chili|tournedos/, "Viande rouge ou mijot\xE9e : un rouge de caract\xE8re, structur\xE9.", { Rouge: 3.5, "Ros\xE9": 0.2 }, /bordeaux|medoc|saint.?emilion|pauillac|margaux|cahors|madiran|bandol|syrah|crozes|hermitage|saint.?joseph|cote.?rotie|chateauneuf|gigondas|corbieres|minervois|languedoc|cabernet|merlot|malbec|rioja|chianti|bourgogne|pommard|gevrey|nuits/, /viande rouge|boeuf|agneau|gibier|grillade/],
+            [/porc|jambon|lardon|saucisse|cote de porc|roti de porc|filet mignon|veau|blanquette|saltimbocca|andouillette|chorizo|boudin/, "Porc ou veau : un rouge l\xE9ger, un ros\xE9 ou un blanc ample.", { Rouge: 2, Blanc: 1.8, "Ros\xE9": 1.8 }, /beaujolais|pinot noir|loire|cotes du rhone|chinon|alsace|pinot gris|chardonnay|provence|tavel|bourgueil|saumur/, /porc|veau|charcuterie/],
+            [/pizza|lasagne|bolognaise|tomate|spaghetti|penne|tagliatelle|pates|ravioli|cannelloni|risotto|parmesan|aubergine|ratatouille|poivron/, "Cuisine italienne ou tomat\xE9e : un rouge souple et fruit\xE9, ou un ros\xE9.", { Rouge: 2.5, "Ros\xE9": 2, Blanc: 0.8 }, /chianti|sangiovese|montepulciano|barbera|valpolicella|nero d.?avola|primitivo|cotes du rhone|grenache|provence|languedoc|toscane|italie|pinot grigio|soave/, /pates|pizza|tomate|italien/],
+            [/carbonara|creme|champignon|poireau|gratin|quiche|tarte salee|brie|camembert|chevre|comte|emmental|gruyere|raclette|tartiflette|fondue|reblochon|fromage|croque/, "Fromage, cr\xE8me ou gratin : un blanc sec et frais (Savoie, Jura, Alsace), ou un rouge l\xE9ger.", { Blanc: 3, Rouge: 1, "Ros\xE9": 0.8, Effervescent: 1 }, /apremont|chignin|roussette|savoie|jura|savagnin|alsace|riesling|pinot blanc|sylvaner|chablis|macon|sancerre|beaujolais|pinot noir|cremant/, /fromage|gratin|raclette|fondue/],
+            [/curry|tajine|couscous|harissa|piment|epice|colombo|wok|thai|indien|chinois|nem|sushi|soja|gingembre|kebab|falafel|tikka|korma|massala/, "Plat \xE9pic\xE9 ou asiatique : un blanc aromatique, un ros\xE9 fruit\xE9 ou un rouge tr\xE8s souple.", { Blanc: 2.5, "Ros\xE9": 2.2, Rouge: 0.8, Effervescent: 0.8 }, /riesling|gewurztraminer|pinot gris|muscat|viognier|chenin|alsace|provence|tavel|beaujolais|vouvray/, /epice|asiat|curry/],
+            [/salade|legume|courgette|carotte|epinard|asperge|haricot|champignon|veloute|soupe|potage|quinoa|houmous|tofu|vegetarien|omelette|oeuf/, "Plat l\xE9ger ou v\xE9g\xE9tal : un blanc sec fruit\xE9 ou un ros\xE9.", { Blanc: 2.5, "Ros\xE9": 2, Rouge: 0.5, Effervescent: 0.8 }, /sauvignon|chenin|muscadet|picpoul|vermentino|loire|provence|rose|macon|pinot blanc|sancerre|touraine|entre.?deux|riesling/, /legume|salade|leger/],
+            [/gateau|tarte aux|mousse au|tiramisu|chocolat|creme brulee|flan|clafoutis|crumble|brownie|fondant|dessert|glace|sorbet|panna cotta|fraise|pomme|poire|caramel/, "Dessert : un vin doux (liquoreux ou effervescent demi-sec).", { Liquoreux: 3.5, Effervescent: 2.5, "Fortifi\xE9": 1.5 }, /sauternes|monbazillac|muscat|jurancon|coteaux|loupiac|moelleux|demi.?sec|asti|banyuls|rivesaltes|porto|vouvray|tokaji|late harvest|vendanges tardives/, /dessert|sucre|chocolat/]
+        ];
+        var DEFAULT_RULE = ["Plat polyvalent : un blanc sec ou un rouge l\xE9ger conviennent.", { Blanc: 2, Rouge: 2, "Ros\xE9": 1.5 }, null, null];
+        function analyseDish(title, ingredients) {
+            var text = norm(String(title || "") + " " + String(ingredients || "")).replace(/[^a-z0-9 ]/g, " ");
+            var head = norm(String(title || "")).replace(/[^a-z0-9 ]/g, " ");
+            var types = {}, advice = [], hints = [], foods = [];
+            RULES.forEach(function (r) {
+                var inTitle = r[0].test(head), inText = r[0].test(text);
+                if (!inTitle && !inText)
+                    return;
+                var k = inTitle ? 1 : 0.55;
+                Object.keys(r[2]).forEach(function (t) {
+                    types[t] = (types[t] || 0) + r[2][t] * k;
+                });
+                if (inTitle || !advice.length)
+                    advice.push(r[1]);
+                if (r[3])
+                    hints.push(r[3]);
+                if (r[4])
+                    foods.push(r[4]);
+            });
+            if (!advice.length) {
+                Object.keys(DEFAULT_RULE[1]).forEach(function (t) {
+                    types[t] = DEFAULT_RULE[1][t];
+                });
+                advice.push(DEFAULT_RULE[0]);
+            }
+            return { types: types, advice: advice.slice(0, 2), hints: hints, foods: foods };
+        }
+        var slotText = function (n) { return "\u00C9tag\u00E8re ".concat(Math.ceil(n / 4), " \u00B7 position ").concat((n - 1) % 4 + 1); };
+        var posText = function (b) { return b.location_kind === "cave" ? b.slot ? slotText(b.slot) : "Cave" : b.location_kind === "placard" ? "Placard" + (b.place_label ? " \xB7 " + b.place_label : "") : "Ext\xE9rieur" + (b.place_label ? " \xB7 " + b.place_label : ""); };
+        function suggestWines(title, ingredients, bottles) {
+            var a = analyseDish(title, ingredients), list = [];
+            (bottles || []).forEach(function (b) {
+                if (!b || b.category === "Spiritueux" || b.wine_type === "Spiritueux" || !(Number(b.quantity) > 0))
+                    return;
+                var w = a.types[b.wine_type || "Rouge"];
+                if (!w)
+                    return;
+                var st = drinkStatus(b), txt = norm([b.name, b.producer, b.region, b.cuvee, b.country].join(" ")).replace(/[^a-z0-9 ]/g, " ");
+                var score = w;
+                var why = [];
+                if (a.hints.some(function (h) { return h.test(txt); })) {
+                    score += 1.5;
+                    why.push("appellation ou c\xE9page adapt\xE9");
+                }
+                if (b.food_pairing && a.foods.some(function (f) { return f.test(norm(b.food_pairing)); })) {
+                    score += 1.5;
+                    why.push("accord indiqu\xE9 sur la fiche");
+                }
+                if (st.state === "drink") {
+                    score += 2;
+                    why.push(st.label === "\xC0 consommer vite" ? "\xE0 boire vite" : "\xE0 maturit\xE9");
+                }
+                else if (st.state === "past") {
+                    score += 1.2;
+                    why.push("apog\xE9e d\xE9pass\xE9e : \xE0 boire sans attendre");
+                }
+                else if (st.state === "keep") {
+                    score -= 3;
+                    why.push("encore jeune : \xE0 garder");
+                }
+                list.push({ b: b, st: st, score: score, why: why });
+            });
+            list.sort(function (x, y) { return y.score - x.score; });
+            return { analysis: a, picks: list.filter(function (x) { return x.score > 1; }).slice(0, 5) };
+        }
+        function winePairModal(title, ingredients) {
+            var _d = suggestWines(title, ingredients, db.store.t.cellar_items), analysis = _d.analysis, picks = _d.picks;
+            var best = Object.keys(analysis.types).sort(function (x, y) { return analysis.types[y] - analysis.types[x]; }).slice(0, 2);
+            openModal("<div class=\"detail\"><h2 class=\"script\">Quel vin avec ce plat ?</h2><p><b>".concat(esc(title || ""), "</b></p>\n    <p>").concat(analysis.advice.map(esc).join(" "), "</p>\n    <h4>Dans votre cave</h4>\n    ").concat(picks.map(function (p) { return "<div class=\"row\"><span class=\"dot\" style=\"background:".concat(esc(p.st.color || "#999"), "\"></span><span class=\"grow\"><b>").concat(esc(p.b.name), "</b> ").concat(p.b.vintage ? "<span class=\"muted\">".concat(p.b.vintage, "</span>") : "", "<br><small>").concat(esc([p.b.wine_type, p.b.producer].filter(Boolean).join(" \xB7 ")), " \u00B7 ").concat(esc(posText(p.b)), "</small><br><small class=\"muted\">").concat(esc(p.st.label || "")).concat(p.why.length ? " \u2014 " + esc(p.why.join(", ")) : "", "</small></span></div>"); }).join("") || "<p class=\"muted\">Aucune bouteille adapt\u00E9e dans votre cave pour ce plat".concat(best.length ? " (cherchez plut\u00F4t un vin ".concat(esc(best.join(" ou ").toLowerCase()), ")") : "", ".</p>"), "\n    <p class=\"muted small\">Suggestion indicative d\u2019apr\u00E8s le type de vin, l\u2019appellation et la maturit\u00E9 estim\u00E9e de chaque bouteille.</p>\n    <div class=\"formactions\"><span class=\"grow\"></span><button class=\"btn\" data-close>Fermer</button></div></div>"), { onMount: function (r) {
+                    r.querySelector("[data-close]").onclick = closeModal;
+                } });
+        }
+        document.addEventListener("click", function (e) {
+            var b = e.target.closest && e.target.closest("[data-wine]");
+            if (!b)
+                return;
+            e.stopPropagation();
+            e.preventDefault();
+            winePairModal(b.getAttribute("data-wt"), b.getAttribute("data-wi"));
+        }, true);
+        return { analyseDish: analyseDish, suggestWines: suggestWines, winePairModal: winePairModal };
+    })();
     __m.ideas = (function () {
         var _d = __m.util, esc = _d.esc, openModal = _d.openModal, closeModal = _d.closeModal, toast = _d.toast;
         var _e = __m.ext, translateIdea = _e.translateIdea, marmitonSearch = _e.marmitonSearch;
         var db = __m.db;
+        var winePairModal = __m.pairing.winePairModal;
         var _f = __m.shopping, harmonizeIngredients = _f.harmonizeIngredients, addIngredients = _f.addIngredients, scaleIngredients = _f.scaleIngredients;
         var ratingHTML = function (idea) { return idea.rating ? " <span class=\"chip rating\">\u2605 ".concat(String(idea.rating).replace(".", ","), "/5").concat(idea.ratingCount ? " \u00B7 ".concat(idea.ratingCount, " avis") : "", "</span>") : ""; };
         var stars = function (n) { return n ? " <span class=\"chip rating\">\u2605 ".concat(String(n).replace(".", ","), "/5</span>") : ""; };
@@ -2327,7 +2537,7 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
         var ideaCardHTML = function (idea) {
             var ing = String(harmonizeIngredients(idea.ingredients) || "").split("\n").filter(Boolean);
             var steps = String(idea.instructions || "").split("\n").filter(Boolean);
-            return "<div class=\"idea\">\n    ".concat(idea.photo_url ? "<img class=\"ideaphoto\" src=\"".concat(esc(idea.photo_url), "\" alt=\"\" loading=\"lazy\">") : "", "\n    <div class=\"ideabody\">\n      <span class=\"chip\">").concat(esc(idea.source === "Marmiton" ? "Marmiton" : idea.kind === "cocktail" ? idea.category : "Id\xE9e recette"), "</span>").concat(ratingHTML(idea), "\n      <h3 class=\"script\">").concat(esc(idea.title), "</h3>\n      ").concat(idea.area ? "<p class=\"muted\">".concat(esc(idea.area), "</p>") : "", "\n      ").concat(idea.kind === "cocktail" ? "" : "<div class=\"servings\">Pour <button class=\"btn sm\" data-sv=\"-\" aria-label=\"Moins\">\u2212</button> <b id=\"svN\">".concat(idea.servings || 4, "</b> <span id=\"svL\">personne").concat((idea.servings || 4) > 1 ? "s" : "", "</span> <button class=\"btn sm\" data-sv=\"+\" aria-label=\"Plus\">+</button>").concat(idea.servings ? "" : ' <small class="muted">(nombre non pr\xE9cis\xE9 par la source)</small>', "</div>"), "\n      <h4>Ingr\u00E9dients</h4><ul id=\"ingList\">").concat(ing.map(function (i) { return "<li>".concat(esc(i), "</li>"); }).join(""), "</ul>\n      <h4>Pr\u00E9paration</h4>").concat(steps.map(function (s) { return "<p>".concat(esc(s), "</p>"); }).join(""), "\n      ").concat(idea.lang === "en" ? '<p class="muted small">Texte en anglais (traduction automatique indisponible).</p>' : idea.translated ? '<p class="muted small">Traduit automatiquement.</p>' : "", "\n      ").concat(reviewsHTML(idea), "\n      ").concat(idea.note ? "<p class=\"muted small\">".concat(esc(idea.note), "</p>") : "", "\n      ").concat(idea.source_url ? "<p><a href=\"".concat(esc(idea.source_url), "\" target=\"_blank\" rel=\"noopener\">").concat(idea.source === "Marmiton" ? "Voir sur Marmiton \u2197" : "Source \u2197", "</a></p>") : "", "\n    </div></div>");
+            return "<div class=\"idea\">\n    ".concat(idea.photo_url ? "<img class=\"ideaphoto\" src=\"".concat(esc(idea.photo_url), "\" alt=\"\" loading=\"lazy\">") : "", "\n    <div class=\"ideabody\">\n      <span class=\"chip\">").concat(esc(idea.source === "Marmiton" ? "Marmiton" : idea.kind === "cocktail" ? idea.category : "Id\xE9e recette"), "</span>").concat(ratingHTML(idea), "\n      <h3 class=\"script\">").concat(esc(idea.title), "</h3>\n      ").concat(idea.area ? "<p class=\"muted\">".concat(esc(idea.area), "</p>") : "", "\n      ").concat(idea.kind === "cocktail" ? "" : "<div class=\"servings\">Pour <button class=\"btn sm\" data-sv=\"-\" aria-label=\"Moins\">\u2212</button> <b id=\"svN\">".concat(idea.servings || 4, "</b> <span id=\"svL\">personne").concat((idea.servings || 4) > 1 ? "s" : "", "</span> <button class=\"btn sm\" data-sv=\"+\" aria-label=\"Plus\">+</button>").concat(idea.servings ? "" : ' <small class="muted">(nombre non pr\xE9cis\xE9 par la source)</small>', "</div>"), "\n      ").concat(idea.kind === "cocktail" ? "" : "<p><button class=\"btn sm\" data-wine data-wt=\"".concat(esc(idea.title), "\" data-wi=\"").concat(esc(String(idea.ingredients || "")), "\">Quel vin ?</button></p>"), "\n      <h4>Ingr\u00E9dients</h4><ul id=\"ingList\">").concat(ing.map(function (i) { return "<li>".concat(esc(i), "</li>"); }).join(""), "</ul>\n      <h4>Pr\u00E9paration</h4>").concat(steps.map(function (s) { return "<p>".concat(esc(s), "</p>"); }).join(""), "\n      ").concat(idea.lang === "en" ? '<p class="muted small">Texte en anglais (traduction automatique indisponible).</p>' : idea.translated ? '<p class="muted small">Traduit automatiquement.</p>' : "", "\n      ").concat(reviewsHTML(idea), "\n      ").concat(idea.note ? "<p class=\"muted small\">".concat(esc(idea.note), "</p>") : "", "\n      ").concat(idea.source_url ? "<p><a href=\"".concat(esc(idea.source_url), "\" target=\"_blank\" rel=\"noopener\">").concat(idea.source === "Marmiton" ? "Voir sur Marmiton \u2197" : "Source \u2197", "</a></p>") : "", "\n    </div></div>");
         };
         function bindServings(root, idea) {
             var minus = root.querySelector('[data-sv="-"]'), plus = root.querySelector('[data-sv="+"]');
@@ -2828,120 +3038,12 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
         };
         return { parseCSV: parseCSV, vivinoId: vivinoId, keyOf: keyOf, readRows: readRows, planSync: planSync, isCellarFile: isCellarFile };
     })();
-    __m.drink = (function () {
-        var norm = __m.util.norm;
-        var CAVE_TEMP = 18;
-        var RULES = {
-            Rouge: [
-                [/barolo|barbaresco|brunello|amarone|sassicaia|taurasi/, 8, 25, "grand vin italien"],
-                [/pauillac|saint.?julien|margaux|saint.?estephe|pomerol|pessac|grand cru classe|premier cru classe/, 7, 22, "grand Bordeaux"],
-                [/saint.?emilion|haut.?medoc|medoc|listrac|moulis|graves|fronsac|canon/, 5, 15, "Bordeaux"],
-                [/chambertin|romanee|musigny|echezeaux|clos vougeot|corton|richebourg|grands.?echezeaux/, 8, 25, "grand cru de Bourgogne"],
-                [/gevrey|nuits|vosne|chambolle|volnay|pommard|aloxe|savigny|beaune|morey|santenay|chorey|marsannay|bourgogne/, 4, 12, "Bourgogne"],
-                [/crozes|saint.?joseph/, 3, 10, "Rh\xF4ne nord"],
-                [/hermitage|cote.?rotie|cornas/, 7, 22, "Rh\xF4ne nord (grand)"],
-                [/chateauneuf|gigondas|vacqueyras|vinsobres|rasteau|cairanne/, 4, 14, "Rh\xF4ne sud"],
-                [/cotes du rhone|ventoux|luberon|costieres|lirac|tavel|duche d uzes/, 2, 7, "C\xF4tes-du-Rh\xF4ne"],
-                [/moulin.?a.?vent|morgon|fleurie|brouilly|chiroubles|julienas|chenas|regnie|saint.?amour/, 2, 7, "cru du Beaujolais"],
-                [/beaujolais/, 0, 3, "Beaujolais"],
-                [/chinon|bourgueil|saumur|anjou|touraine|cabernet franc/, 2, 9, "Loire"],
-                [/cahors|madiran|malbec|irouleguy|tursan/, 4, 13, "Sud-Ouest"],
-                [/bergerac|buzet|gaillac|fronton|saint.?mont|marmandais|pecharmant/, 2, 8, "Sud-Ouest"],
-                [/languedoc|minervois|corbieres|fitou|faugeres|saint.?chinian|pic saint.?loup|roussillon|collioure|cotes du roussillon|terrasses du larzac|la clape/, 3, 10, "Languedoc-Roussillon"],
-                [/provence|bandol|cotes de provence|coteaux varois|pierrevert/, 2, 8, "Provence"],
-                [/gran reserva/, 8, 20, "Rioja Gran Reserva"],
-                [/reserva|rioja|ribera|priorat/, 4, 14, "Espagne"],
-                [/chianti|sangiovese|montepulciano|valpolicella|primitivo|nero d avola|rosso|barbera|dolcetto/, 3, 9, "Italie"],
-                [/bordeaux|castillon|cotes de bourg|blaye|entre.?deux.?mers/, 3, 10, "Bordeaux"],
-                [/savoie|mondeuse|arbois|jura/, 2, 7, "Savoie / Jura"],
-                [/alsace|pinot noir/, 2, 7, "Pinot noir"]
-            ],
-            Blanc: [
-                [/montrachet|corton.?charlemagne|meursault|puligny|chassagne/, 5, 16, "grand blanc de Bourgogne"],
-                [/chablis/, 2, 9, "Chablis"],
-                [/pouilly.?fuisse|saint.?veran|macon|vire|bourgogne|rully|montagny|aligote/, 2, 8, "Bourgogne blanc"],
-                [/condrieu|hermitage|saint.?joseph|crozes/, 3, 12, "Rh\xF4ne nord blanc"],
-                [/cotes du rhone|ventoux|luberon|chateauneuf/, 1, 5, "Rh\xF4ne blanc"],
-                [/savennieres|vouvray|montlouis|chenin|coteaux du layon/, 3, 15, "chenin de Loire"],
-                [/sancerre|pouilly.?fume|menetou|quincy|reuilly|sauvignon/, 1, 4, "Sauvignon"],
-                [/muscadet|gros plant/, 1, 5, "Muscadet"],
-                [/riesling|alsace|pinot gris|gewurztraminer|sylvaner|muscat/, 3, 12, "Alsace"],
-                [/vin jaune/, 10, 50, "vin jaune"],
-                [/savagnin|jura|arbois|chateau.?chalon/, 4, 15, "Jura"],
-                [/pessac|graves|haut.?brion|chevalier|sauternes/, 4, 15, "Bordeaux blanc de garde"],
-                [/bordeaux|entre.?deux.?mers/, 1, 5, "Bordeaux blanc"],
-                [/picpoul|gascogne|colombard|igp|pays d oc|vin de france|chardonnay/, 1, 4, "blanc de fra\xEEcheur"],
-                [/languedoc|roussillon|corbieres|minervois/, 1, 6, "Languedoc"],
-                [/provence/, 1, 3, "Provence"]
-            ],
-            "Ros\xE9": [[/bandol/, 1, 4, "ros\xE9 de Bandol"], [/tavel/, 1, 4, "ros\xE9 de Tavel"], [/./, 0, 2, "ros\xE9"]],
-            Effervescent: [
-                [/champagne.*(millesime|vintage|grand cru)|millesime.*champagne|dom perignon|cristal|clicquot la grande|krug/, 5, 18, "champagne mill\xE9sim\xE9"],
-                [/champagne/, 0, 4, "champagne non mill\xE9sim\xE9"],
-                [/cremant|prosecco|cava|asti|blanquette|clairette|petillant|franciacorta|pet nat|mousseux/, 0, 3, "effervescent de fra\xEEcheur"],
-                [/./, 0, 3, "effervescent"]
-            ],
-            Liquoreux: [[/sauternes|barsac|monbazillac|tokaj|jurancon|coteaux du layon|quarts de chaume|bonnezeaux|vendanges tardives|selection de grains/, 6, 30, "grand liquoreux"], [/./, 4, 20, "vin doux"]],
-            "Fortifi\xE9": [[/vintage|colheita/, 15, 50, "porto vintage"], [/lbv|late bottled/, 4, 15, "porto LBV"], [/tawny|ruby|porto|port/, 0, 20, "porto"], [/banyuls|maury|rivesaltes|muscat de/, 3, 25, "vin doux naturel"], [/madere|madeira/, 10, 80, "mad\xE8re"], [/xeres|sherry|jerez|fino|amontillado/, 0, 15, "x\xE9r\xE8s"], [/./, 3, 25, "vin fortifi\xE9"]]
-        };
-        var STATES = {
-            drink: { color: "#2e9e4f", label: "\xC0 consommer", short: "Vert" },
-            keep: { color: "#e8892b", label: "\xC0 conserver", short: "Orange" },
-            past: { color: "#d33a3a", label: "Apr\xE8s apog\xE9e", short: "Rouge" },
-            unknown: { color: "#9aa3a8", label: "Maturit\xE9 inconnue", short: "Gris" }
-        };
-        var years = function (t) { return (String(t || "").match(/(?:19|20)\d{2}/g) || []).map(Number); };
-        function drinkStatus(b, now) {
-            if (now === void 0) { now = new Date(); }
-            var year = now.getFullYear();
-            if (!b || b.wine_type === "Spiritueux" || b.category === "Spiritueux")
-                return __spreadProps(__spreadValues({ state: "unknown" }, STATES.unknown), { label: "Se conserve", why: "Spiritueux : pas d\u2019\xE9volution en bouteille ferm\xE9e." });
-            var vintage = Number(b.vintage) || null;
-            var type = RULES[b.wine_type] ? b.wine_type : "Rouge";
-            var text = norm([b.name, b.producer, b.region, b.country, b.notes].join(" ")).replace(/[^a-z0-9 ]/g, " ");
-            var from, to, why;
-            var w = years(b.drinking_window);
-            if (w.length >= 2) {
-                var base2 = vintage || w[0];
-                from = w[0] - base2;
-                to = w[1] - base2;
-                why = "Fen\u00EAtre indiqu\u00E9e sur la fiche : ".concat(w[0], "\u2013").concat(w[1], ".");
-            }
-            else if (w.length === 1 && vintage) {
-                from = 0;
-                to = w[0] - vintage;
-                why = "\u00C0 boire avant ".concat(w[0], " (fiche).");
-            }
-            else {
-                var rule = RULES[type].find(function (r) { return r[0].test(text); }) || __spreadArray([null], __read({ Rouge: [3, 8, "rouge"], Blanc: [2, 5, "blanc"] }[type] || [2, 8, "vin"]), false);
-                from = rule[1];
-                to = rule[2];
-                why = "Estimation : ".concat(rule[3], " (").concat(from, "\u2013").concat(to, " ans apr\u00E8s le mill\u00E9sime).");
-                if (!vintage && type === "Effervescent" && b.acquired_on)
-                    vintage = Number(String(b.acquired_on).slice(0, 4)) || null;
-            }
-            if (!vintage)
-                return __spreadProps(__spreadValues({ state: "unknown" }, STATES.unknown), { why: "Mill\xE9sime inconnu : impossible d\u2019estimer la maturit\xE9." });
-            var age = year - vintage, ready = vintage + from, end = vintage + to, peak = Math.round(vintage + from + (to - from) * 0.45);
-            var base = { from: ready, to: end, peak: peak, age: age, why: why };
-            if (age < from)
-                return __spreadProps(__spreadValues(__spreadValues({ state: "keep" }, STATES.keep), base), { detail: "\u00C0 garder jusqu\u2019en ".concat(ready, " (apog\u00E9e vers ").concat(peak, ").") });
-            if (age > to)
-                return __spreadProps(__spreadValues(__spreadValues({ state: "past" }, STATES.past), base), { detail: "Apog\u00E9e d\u00E9pass\u00E9e depuis ".concat(end, " : \u00E0 boire sans attendre.") });
-            return __spreadProps(__spreadValues(__spreadValues({ state: "drink" }, STATES.drink), base), { label: to - age <= 1 && to > from ? "\xC0 consommer vite" : "\xC0 consommer", detail: "Pr\u00EAt jusqu\u2019en ".concat(end, " (apog\u00E9e vers ").concat(peak, ").") });
-        }
-        var drinkSummary = function (list) { return list.reduce(function (o, b) {
-            var s = drinkStatus(b).state;
-            o[s] = (o[s] || 0) + (Number(b.quantity) || 1);
-            return o;
-        }, { drink: 0, keep: 0, past: 0, unknown: 0 }); };
-        return { CAVE_TEMP: CAVE_TEMP, STATES: STATES, drinkStatus: drinkStatus, drinkSummary: drinkSummary };
-    })();
     __m.recipes = (function () {
         var _d = __m.util, $ = _d.$, $$ = _d.$$, esc = _d.esc, toast = _d.toast, openModal = _d.openModal, closeModal = _d.closeModal, formDialog = _d.formDialog, compressImage = _d.compressImage, ymd = _d.ymd, DAYS = _d.DAYS;
         var db = __m.db;
         var _e = __m.scan, scanBox = _e.scanBox, bindScan = _e.bindScan, fillForm = _e.fillForm, ocr = _e.ocr, parseRecipe = _e.parseRecipe;
         var _f = __m.ideas, openIdea = _f.openIdea, openMarmitonSearch = _f.openMarmitonSearch;
+        var winePairModal = __m.pairing.winePairModal;
         var _g = __m.ext, randomMeal = _g.randomMeal, randomCocktail = _g.randomCocktail, MEAL_CATS = _g.MEAL_CATS;
         var importRecipes = __m.seed.importRecipes;
         var _h = __m.shopping, addIngredients = _h.addIngredients, harmonizeIngredients = _h.harmonizeIngredients;
@@ -2969,7 +3071,7 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
             if (!r)
                 return;
             var chips = [r.category, r.servings && "".concat(r.servings, " pers."), r.prep_minutes && "pr\u00E9paration ".concat(r.prep_minutes, " min"), r.cook_minutes && "cuisson ".concat(r.cook_minutes, " min")].filter(Boolean);
-            openModal("<div class=\"detail recipe\">\n    ".concat(r.photo_url ? "<img class=\"rphoto\" src=\"".concat(esc(r.photo_url), "\" alt=\"\">") : "", "\n    <div class=\"rhead\"><h2 class=\"script\">").concat(esc(r.title), "</h2><button class=\"iconbtn\" data-act=\"fav\" aria-label=\"Favori\">").concat(r.favorite ? "\u2665" : "\u2661", "</button></div>\n    <div class=\"chips static\">").concat(chips.map(function (c) { return "<span class=\"chip\">".concat(esc(c), "</span>"); }).join(""), "</div>\n    <div class=\"stars\" data-stars>").concat([1, 2, 3, 4, 5].map(function (n) { return "<button data-star=\"".concat(n, "\" class=\"").concat(n <= (r.rating || 0) ? "on" : "", "\" aria-label=\"").concat(n, " \u00E9toiles\">\u2605</button>"); }).join(""), "</div>\n    ").concat(r.description ? "<p>".concat(esc(r.description), "</p>") : "", "\n    <div class=\"two\"><div><h4>Ingr\u00E9dients</h4><ul>").concat(lines(r.ingredients).map(function (l) { return "<li>".concat(esc(l), "</li>"); }).join("") || '<li class="muted">\u2014</li>', "</ul></div>\n    <div><h4>Pr\u00E9paration</h4>").concat(lines(r.instructions).map(function (l, i) { return "<p><b class=\"num\">".concat(i + 1, "</b> ").concat(esc(l), "</p>"); }).join("") || '<p class="muted">\u2014</p>', "</div></div>\n    ").concat(r.notes ? "<h4>Notes</h4><p>".concat(esc(r.notes), "</p>") : "").concat(r.nutrition ? "<details><summary>Valeurs nutritionnelles</summary><pre>".concat(esc(r.nutrition), "</pre></details>") : "", "\n    ").concat(r.source_url ? "<p><a href=\"".concat(esc(r.source_url), "\" target=\"_blank\" rel=\"noopener\">Recette d\u2019origine \u2197</a></p>") : "", "\n    <div class=\"formactions wrap\"><button class=\"btn\" data-act=\"plan\">Planifier</button><button class=\"btn\" data-act=\"shop\">Ajouter aux courses</button><span class=\"grow\"></span>\n      <button class=\"btn\" data-act=\"edit\">Modifier</button><button class=\"btn ghost\" data-close>Fermer</button></div></div>"), {
+            openModal("<div class=\"detail recipe\">\n    ".concat(r.photo_url ? "<img class=\"rphoto\" src=\"".concat(esc(r.photo_url), "\" alt=\"\">") : "", "\n    <div class=\"rhead\"><h2 class=\"script\">").concat(esc(r.title), "</h2><button class=\"iconbtn\" data-act=\"fav\" aria-label=\"Favori\">").concat(r.favorite ? "\u2665" : "\u2661", "</button></div>\n    <div class=\"chips static\">").concat(chips.map(function (c) { return "<span class=\"chip\">".concat(esc(c), "</span>"); }).join(""), "</div>\n    <div class=\"stars\" data-stars>").concat([1, 2, 3, 4, 5].map(function (n) { return "<button data-star=\"".concat(n, "\" class=\"").concat(n <= (r.rating || 0) ? "on" : "", "\" aria-label=\"").concat(n, " \u00E9toiles\">\u2605</button>"); }).join(""), "</div>\n    ").concat(r.description ? "<p>".concat(esc(r.description), "</p>") : "", "\n    <div class=\"two\"><div><h4>Ingr\u00E9dients</h4><ul>").concat(lines(r.ingredients).map(function (l) { return "<li>".concat(esc(l), "</li>"); }).join("") || '<li class="muted">\u2014</li>', "</ul></div>\n    <div><h4>Pr\u00E9paration</h4>").concat(lines(r.instructions).map(function (l, i) { return "<p><b class=\"num\">".concat(i + 1, "</b> ").concat(esc(l), "</p>"); }).join("") || '<p class="muted">\u2014</p>', "</div></div>\n    ").concat(r.notes ? "<h4>Notes</h4><p>".concat(esc(r.notes), "</p>") : "").concat(r.nutrition ? "<details><summary>Valeurs nutritionnelles</summary><pre>".concat(esc(r.nutrition), "</pre></details>") : "", "\n    ").concat(r.source_url ? "<p><a href=\"".concat(esc(r.source_url), "\" target=\"_blank\" rel=\"noopener\">Recette d\u2019origine \u2197</a></p>") : "", "\n    <div class=\"formactions wrap\"><button class=\"btn\" data-act=\"plan\">Planifier</button><button class=\"btn\" data-act=\"shop\">Ajouter aux courses</button><button class=\"btn\" data-wine data-wt=\"").concat(esc(r.title), "\" data-wi=\"").concat(esc(r.ingredients || ""), "\">Quel vin ?</button><span class=\"grow\"></span>\n      <button class=\"btn\" data-act=\"edit\">Modifier</button><button class=\"btn ghost\" data-close>Fermer</button></div></div>"), {
                 wide: true,
                 onMount: function (root) {
                     $("[data-close]", root).onclick = closeModal;
@@ -4303,6 +4405,7 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
         var _f = __m.shopping, addIngredients = _f.addIngredients, scaleIngredients = _f.scaleIngredients;
         var _g = __m.season, scoreRecipe = _g.scoreRecipe, seasonalNames = _g.seasonalNames, MONTHS = _g.MONTHS;
         var openRecipe = __m.recipes.openRecipe;
+        var winePairModal = __m.pairing.winePairModal;
         var _h = __m.ideas, openIdea = _h.openIdea, saveIdeaAsRecipe = _h.saveIdeaAsRecipe, ratingHTML = _h.ratingHTML;
         var today = /* @__PURE__ */ new Date();
         var weekStart = weekStartSaturday(today.getDay() === 5 ? addDays(today, 1) : today);
@@ -4316,7 +4419,7 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
         function mealCell(d, type) {
             var _a;
             var p = planAt(ymd(d), type), r = (p == null ? void 0 : p.recipe_id) ? recipeById(p.recipe_id) : null;
-            return "<div class=\"meal ".concat(p ? "filled" : "", "\" data-date=\"").concat(ymd(d), "\" data-type=\"").concat(type, "\">\n    <small class=\"mtype\">").concat(TYPE_LABEL[type], "</small>\n    ").concat(p ? "<div class=\"mrow\">".concat((r == null ? void 0 : r.photo_url) ? "<img src=\"".concat(esc(r.photo_url), "\" alt=\"\" loading=\"lazy\">") : "", "<span><b>").concat(esc(p.title || (r == null ? void 0 : r.title) || "Repas"), "</b><small>").concat(p.servings || 3, " pers.</small></span></div>") : (SECOND_EVENING.includes(d.getDay()) && type === "soir" && (((_a = planAt(ymd(addDays(d, -1)), "soir")) == null ? void 0 : _a.servings) || 0) >= 6 ? '<small class="muted">\u21B3 suite du repas de la veille</small>' : "") + '<span class="plus">\uFF0B</span>', "</div>");
+            return "<div class=\"meal ".concat(p ? "filled" : "", "\" data-date=\"").concat(ymd(d), "\" data-type=\"").concat(type, "\">\n    <small class=\"mtype\">").concat(TYPE_LABEL[type], "</small>\n    ").concat(p ? "<div class=\"mrow\">".concat((r == null ? void 0 : r.photo_url) ? "<img src=\"".concat(esc(r.photo_url), "\" alt=\"\" loading=\"lazy\">") : "", "<span><b>").concat(esc(p.title || (r == null ? void 0 : r.title) || "Repas"), "</b><small>").concat(p.servings || 3, " pers. \u00B7 <a href=\"#\" data-wine data-wt=\"").concat(esc(p.title || (r == null ? void 0 : r.title) || ""), "\" data-wi=\"").concat(esc((r == null ? void 0 : r.ingredients) || ""), "\">Vin</a></small></span></div>") : (SECOND_EVENING.includes(d.getDay()) && type === "soir" && (((_a = planAt(ymd(addDays(d, -1)), "soir")) == null ? void 0 : _a.servings) || 0) >= 6 ? '<small class="muted">\u21B3 suite du repas de la veille</small>' : "") + '<span class="plus">\uFF0B</span>', "</div>");
         }
         function html() {
             var days = weekDays(weekStart);
@@ -4366,10 +4469,12 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                 }); }
             });
         }
+        var SWEET = /(?:^|[^a-zà-ÿ])(dessert|g[âa]teau|mousse (?:au|aux|de)|tiramisu|cr[èe]me br[ûu]l[ée]e|panna cotta|brownie|cookie|muffin|cupcake|clafoutis|fondant au|moelleux au chocolat|charlotte|pudding|financier|madeleine|[ée]clair|macaron|sorbet|glace|milkshake|smoothie|compote|confiture|pancake|cr[êe]pes? (?:sucr|suzette)|gaufre|beignet|tarte (?:aux|au) (?:pomme|poire|fraise|citron|chocolat|framboise|abricot|noix|praline|myrtille|cerise|banane|mirabelle|prune|rhubarbe|figue|caramel|amande)s?|pain perdu|tarte tatin|cheesecake|forêt noire|baba|pavlova|flan (?:p[âa]tissier|coco|au caramel)|riz au lait|[ée]ponge|brioche|biscuit|sabl[ée]s?|speculoos|nougat|crumble (?:aux|au) (?:pomme|poire|fruits|fraise|rhubarbe))(?![a-zà-ÿ])/i;
+        var isDessert = function (x) { return !!x && (/dessert|p[âa]tisserie|g[âa]teau/i.test(String(x.category || "") + " " + String(x.area || "")) || SWEET.test(String(x.title || ""))); };
         var isSoup = function (r) { return /soupe|velout|potage|bouillon/i.test(r.title); };
         var prop = [], propWebN = 2, webError = "";
         function pools() {
-            var mine = recipes().filter(function (r) { return !/^cocktail/i.test(r.category || ""); });
+            var mine = recipes().filter(function (r) { return !/^cocktail/i.test(r.category || "") && !isDessert(r); });
             var recent = new Set(plans().filter(function (p) { return p.recipe_id && parseYmd(p.meal_date) >= addDays(weekStart, -21) && parseYmd(p.meal_date) < weekStart; }).map(function (p) { return p.recipe_id; }));
             return {
                 recent: recent,
@@ -4479,16 +4584,34 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
         }
         function setWeb(e_36) {
             return __awaiter(this, arguments, void 0, function (e, list) {
-                var idea, _d;
+                var skip, idea, k, cand, _d;
                 if (list === void 0) { list = prop; }
                 return __generator(this, function (_e) {
                     switch (_e.label) {
                         case 0:
+                            skip = list.filter(function (x) { return x.web; }).map(function (x) { return x.web.id; });
+                            idea = null;
+                            k = 0;
+                            _e.label = 1;
+                        case 1:
+                            if (!(k < 4 && !idea)) return [3 /*break*/, 5];
                             _d = translateIdea;
-                            return [4 /*yield*/, marmitonMeal(pick(seasonalNames(( /* @__PURE__ */new Date()).getMonth() + 1)), list.filter(function (x) { return x.web; }).map(function (x) { return x.web.id; }))];
-                        case 1: return [4 /*yield*/, _d.apply(void 0, [_e.sent()])];
-                        case 2:
-                            idea = _e.sent();
+                            return [4 /*yield*/, marmitonMeal(pick(seasonalNames(( /* @__PURE__ */new Date()).getMonth() + 1)) + (k ? " plat" : ""), skip)];
+                        case 2: return [4 /*yield*/, _d.apply(void 0, [_e.sent()])];
+                        case 3:
+                            cand = _e.sent();
+                            if (isDessert(cand)) {
+                                skip.push(cand.id);
+                                return [3 /*break*/, 4];
+                            }
+                            idea = cand;
+                            _e.label = 4;
+                        case 4:
+                            k++;
+                            return [3 /*break*/, 1];
+                        case 5:
+                            if (!idea)
+                                throw new Error("Marmiton n\u2019a renvoy\xE9 que des desserts, r\xE9essayez.");
                             Object.assign(e, { web: idea, recipe_id: null, title: idea.title, photo_url: idea.photo_url });
                             return [2 /*return*/];
                     }
@@ -4752,7 +4875,7 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                 });
             }); };
         }
-        return { html: html, bind: bind };
+        return { html: html, isDessert: isDessert, bind: bind };
     })();
     __m.courses = (function () {
         var _d = __m.util, $ = _d.$, esc = _d.esc, toast = _d.toast;
@@ -4865,6 +4988,303 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
         }
         return { html: html, bind: bind };
     })();
+    __m.ics = (function () {
+        var db = __m.db;
+        var CAL_KEY = "family-calendars", DATA_KEY = "family-cal-data";
+        var COLORS = ["#7b61c9", "#2a9d8f", "#e07a5f", "#3d85c6", "#c9a227", "#c2528b"];
+        var jget = function (k) {
+            try {
+                return JSON.parse(localStorage.getItem(k));
+            }
+            catch (e) {
+                return null;
+            }
+        };
+        var jset = function (k, v) {
+            try {
+                localStorage.setItem(k, JSON.stringify(v));
+            }
+            catch (e) {
+            }
+        };
+        var calendars = function () { return jget(CAL_KEY) || []; };
+        function addCalendar(name, url) {
+            var l = calendars();
+            var c = { id: "c" + Date.now().toString(36), name: name, url: normUrl(url), color: COLORS[l.length % COLORS.length] };
+            l.push(c);
+            jset(CAL_KEY, l);
+            return c;
+        }
+        function removeCalendar(id) {
+            jset(CAL_KEY, calendars().filter(function (c) { return c.id !== id; }));
+            var d = jget(DATA_KEY) || {};
+            delete d[id];
+            jset(DATA_KEY, d);
+        }
+        var normUrl = function (u) { return String(u || "").trim().replace(/^webcal:\/\//i, "https://"); };
+        var unfold = function (s) { return s.replace(/\r?\n[ \t]/g, "").split(/\r?\n/); };
+        var unesc = function (v) { return String(v || "").replace(/\\n/gi, " ").replace(/\\([,;\\])/g, "$1"); };
+        function pDate(val, params) {
+            var m = String(val).match(/^(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2})(\d{2})(Z)?)?$/);
+            if (!m)
+                return null;
+            var allDay = m[4] === void 0 || /VALUE=DATE(?!-)/i.test(params || "");
+            if (allDay)
+                return { d: new Date(+m[1], +m[2] - 1, +m[3]), allDay: true };
+            return { d: m[7] ? new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6])) : new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]), allDay: false };
+        }
+        function parseICS(text) {
+            var out = [];
+            var cur = null;
+            unfold(String(text)).forEach(function (line) {
+                if (line === "BEGIN:VEVENT") {
+                    cur = { ex: [] };
+                    return;
+                }
+                if (line === "END:VEVENT") {
+                    if (cur && cur.start)
+                        out.push(cur);
+                    cur = null;
+                    return;
+                }
+                if (!cur)
+                    return;
+                var i = line.indexOf(":");
+                if (i < 0)
+                    return;
+                var head = line.slice(0, i), val = line.slice(i + 1), semi = head.indexOf(";"), name = (semi < 0 ? head : head.slice(0, semi)).toUpperCase(), params = semi < 0 ? "" : head.slice(semi + 1);
+                if (name === "SUMMARY")
+                    cur.title = unesc(val);
+                else if (name === "LOCATION")
+                    cur.place = unesc(val);
+                else if (name === "UID")
+                    cur.uid = val;
+                else if (name === "DTSTART") {
+                    var p = pDate(val, params);
+                    if (p) {
+                        cur.start = p.d;
+                        cur.allDay = p.allDay;
+                    }
+                }
+                else if (name === "DTEND") {
+                    var p = pDate(val, params);
+                    if (p)
+                        cur.end = p.d;
+                }
+                else if (name === "RRULE")
+                    cur.rrule = val;
+                else if (name === "EXDATE")
+                    val.split(",").forEach(function (x) {
+                        var p = pDate(x, params);
+                        if (p)
+                            cur.ex.push(p.d.getTime());
+                    });
+                else if (name === "STATUS" && /CANCELLED/i.test(val))
+                    cur.cancelled = true;
+            });
+            return out.filter(function (e) { return !e.cancelled; });
+        }
+        var DAYS = { SU: 0, MO: 1, TU: 2, WE: 3, TH: 4, FR: 5, SA: 6 };
+        function occurrences(e, from, to) {
+            var res = [], dur = e.end ? e.end.getTime() - e.start.getTime() : 0;
+            var push = function (d) {
+                if (e.ex.indexOf(d.getTime()) >= 0)
+                    return;
+                var end = new Date(d.getTime() + dur);
+                if (end >= from && d < to)
+                    res.push({ start: d, end: dur ? end : null });
+            };
+            if (!e.rrule) {
+                push(e.start);
+                return res;
+            }
+            var r = {};
+            e.rrule.split(";").forEach(function (p) {
+                var kv = p.split("=");
+                r[kv[0]] = kv[1];
+            });
+            var step = Math.max(1, parseInt(r.INTERVAL || "1", 10)), max = r.COUNT ? parseInt(r.COUNT, 10) : 1e9;
+            var until = null;
+            if (r.UNTIL) {
+                var p = pDate(r.UNTIL.replace(/Z$/, ""), "");
+                if (p)
+                    until = new Date(p.d.getTime() + 86399e3);
+            }
+            var s = e.start;
+            var n = 0, k = 0;
+            var hms = function (d) { return new Date(d.getFullYear(), d.getMonth(), d.getDate(), s.getHours(), s.getMinutes(), s.getSeconds()); };
+            var _loop_10 = function () {
+                var cands = [];
+                if (r.FREQ === "DAILY")
+                    cands = [new Date(s.getFullYear(), s.getMonth(), s.getDate() + k * step, s.getHours(), s.getMinutes(), s.getSeconds())];
+                else if (r.FREQ === "WEEKLY") {
+                    var days = r.BYDAY ? r.BYDAY.split(",").map(function (x) { return DAYS[x.slice(-2)]; }).filter(function (x) { return x !== void 0; }) : [s.getDay()];
+                    var monday_1 = new Date(s.getFullYear(), s.getMonth(), s.getDate() - (s.getDay() + 6) % 7 + k * 7 * step);
+                    cands = days.map(function (wd) { return hms(new Date(monday_1.getFullYear(), monday_1.getMonth(), monday_1.getDate() + (wd + 6) % 7)); }).sort(function (a, b) { return a - b; });
+                }
+                else if (r.FREQ === "MONTHLY")
+                    cands = [new Date(s.getFullYear(), s.getMonth() + k * step, s.getDate(), s.getHours(), s.getMinutes(), s.getSeconds())];
+                else if (r.FREQ === "YEARLY")
+                    cands = [new Date(s.getFullYear() + k * step, s.getMonth(), s.getDate(), s.getHours(), s.getMinutes(), s.getSeconds())];
+                else {
+                    push(s);
+                    return { value: res };
+                }
+                var stop = false;
+                for (var j = 0; j < cands.length; j++) {
+                    var d = cands[j];
+                    if (d < s)
+                        continue;
+                    if (until && d > until) {
+                        stop = true;
+                        break;
+                    }
+                    if (++n > max) {
+                        stop = true;
+                        break;
+                    }
+                    if (d >= to) {
+                        stop = true;
+                        break;
+                    }
+                    push(d);
+                }
+                if (stop)
+                    return "break";
+                k++;
+            };
+            while (k < 4e3) {
+                var state_3 = _loop_10();
+                if (typeof state_3 === "object")
+                    return state_3.value;
+                if (state_3 === "break")
+                    break;
+            }
+            return res;
+        }
+        function expand(events, from, to, cal) {
+            var out = [];
+            events.forEach(function (e) { return occurrences(e, from, to).forEach(function (o) {
+                if (e.allDay && o.end && o.end - o.start > 864e5) {
+                    for (var d = new Date(o.start), n = 0; d < o.end && n < 31; d = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1), n++)
+                        if (d >= from && d < to)
+                            out.push({ title: e.title || "(sans titre)", place: e.place, start: d, end: null, allDay: true, cal: cal });
+                }
+                else
+                    out.push({ title: e.title || "(sans titre)", place: e.place, start: o.start, end: o.end, allDay: e.allDay, cal: cal });
+            }); });
+            return out;
+        }
+        function fetchText(url) {
+            return __awaiter(this, void 0, void 0, function () {
+                var to, r, t, e_39, sb, _d, data, error;
+                return __generator(this, function (_e) {
+                    switch (_e.label) {
+                        case 0:
+                            to = function (p, ms) { return Promise.race([p, new Promise(function (_, rej) { return setTimeout(function () { return rej(new Error("d\xE9lai d\xE9pass\xE9")); }, ms); })]); };
+                            _e.label = 1;
+                        case 1:
+                            _e.trys.push([1, 5, , 6]);
+                            return [4 /*yield*/, to(fetch(url), 1e4)];
+                        case 2:
+                            r = _e.sent();
+                            if (!r.ok) return [3 /*break*/, 4];
+                            return [4 /*yield*/, r.text()];
+                        case 3:
+                            t = _e.sent();
+                            if (/BEGIN:VCALENDAR/.test(t))
+                                return [2 /*return*/, t];
+                            _e.label = 4;
+                        case 4: return [3 /*break*/, 6];
+                        case 5:
+                            e_39 = _e.sent();
+                            return [3 /*break*/, 6];
+                        case 6:
+                            sb = db.store.sb;
+                            if (!sb)
+                                throw new Error("Failed to fetch");
+                            return [4 /*yield*/, to(sb.functions.invoke(window.FN_LABELS || "wine-labels", { body: { ics: url } }), 25e3)];
+                        case 7:
+                            _d = _e.sent(), data = _d.data, error = _d.error;
+                            if (error || !data || data.error || !data.text)
+                                throw new Error("lecture impossible (" + (error && error.message || data && data.error || "vide") + ") : mettez \xE0 jour la fonction " + (window.FN_LABELS || "wine-labels"));
+                            return [2 /*return*/, data.text];
+                    }
+                });
+            });
+        }
+        function refreshAll(force) {
+            return __awaiter(this, void 0, void 0, function () {
+                var list, data, changed, list_1, list_1_1, c, old, text, evs, err_18, e_40_1;
+                var e_40, _d;
+                return __generator(this, function (_e) {
+                    switch (_e.label) {
+                        case 0:
+                            list = calendars(), data = jget(DATA_KEY) || {};
+                            changed = false;
+                            _e.label = 1;
+                        case 1:
+                            _e.trys.push([1, 8, 9, 10]);
+                            list_1 = __values(list), list_1_1 = list_1.next();
+                            _e.label = 2;
+                        case 2:
+                            if (!!list_1_1.done) return [3 /*break*/, 7];
+                            c = list_1_1.value;
+                            old = data[c.id];
+                            if (!force && old && Date.now() - old.at < 30 * 60 * 1e3)
+                                return [3 /*break*/, 6];
+                            _e.label = 3;
+                        case 3:
+                            _e.trys.push([3, 5, , 6]);
+                            return [4 /*yield*/, fetchText(c.url)];
+                        case 4:
+                            text = _e.sent(), evs = parseICS(text);
+                            data[c.id] = { at: Date.now(), events: evs.map(function (e) { return ({ t: e.title, p: e.place, s: e.start.getTime(), e: e.end ? e.end.getTime() : null, a: e.allDay, r: e.rrule, x: e.ex }); }) };
+                            changed = true;
+                            return [3 /*break*/, 6];
+                        case 5:
+                            err_18 = _e.sent();
+                            data[c.id] = { at: Date.now(), events: old ? old.events : [], error: err_18.message };
+                            changed = true;
+                            return [3 /*break*/, 6];
+                        case 6:
+                            list_1_1 = list_1.next();
+                            return [3 /*break*/, 2];
+                        case 7: return [3 /*break*/, 10];
+                        case 8:
+                            e_40_1 = _e.sent();
+                            e_40 = { error: e_40_1 };
+                            return [3 /*break*/, 10];
+                        case 9:
+                            try {
+                                if (list_1_1 && !list_1_1.done && (_d = list_1.return)) _d.call(list_1);
+                            }
+                            finally { if (e_40) throw e_40.error; }
+                            return [7 /*endfinally*/];
+                        case 10:
+                            jset(DATA_KEY, data);
+                            return [2 /*return*/, changed];
+                    }
+                });
+            });
+        }
+        var calError = function (id) {
+            var d = (jget(DATA_KEY) || {})[id];
+            return d && d.error || "";
+        };
+        function externalEvents(from, to) {
+            var data = jget(DATA_KEY) || {}, out = [];
+            calendars().forEach(function (c) {
+                var d = data[c.id];
+                if (!d)
+                    return;
+                var evs = d.events.map(function (x) { return ({ title: x.t, place: x.p, start: new Date(x.s), end: x.e ? new Date(x.e) : null, allDay: x.a, rrule: x.r, ex: x.x || [] }); });
+                expand(evs, from, to, c).forEach(function (o) { return out.push(o); });
+            });
+            return out;
+        }
+        return { COLORS: COLORS, calendars: calendars, addCalendar: addCalendar, removeCalendar: removeCalendar, normUrl: normUrl, parseICS: parseICS, expand: expand, refreshAll: refreshAll, calError: calError, externalEvents: externalEvents };
+    })();
     __m.news = (function () {
         var _d = __m.util, $ = _d.$, $$ = _d.$$, esc = _d.esc, toast = _d.toast, ymd = _d.ymd, addDays = _d.addDays;
         var API = "https://api.rss2json.com/v1/api.json?count=12&rss_url=";
@@ -4946,7 +5366,7 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                             out = {};
                             ok = 0, last = "";
                             return [4 /*yield*/, Promise.all(Object.entries(FEEDS).map(function (_d) { return __awaiter(_this, [_d], void 0, function (_e) {
-                                    var lists, seen, items, _loop_10, out_k_1, inc_1, k, state_3;
+                                    var lists, seen, items, _loop_11, out_k_1, inc_1, k, state_4;
                                     var _f = __read(_e, 2), name = _f[0], urls = _f[1];
                                     return __generator(this, function (_g) {
                                         switch (_g.label) {
@@ -4957,7 +5377,7 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                                             case 1:
                                                 lists = (_g.sent()).filter(function (l) { return l.length; });
                                                 seen = {}, items = [];
-                                                _loop_10 = function (k) {
+                                                _loop_11 = function (k) {
                                                     if (inc_1)
                                                         k++;
                                                     else
@@ -4975,9 +5395,9 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                                                 };
                                                 inc_1 = false;
                                                 for (k = 0;;) {
-                                                    state_3 = _loop_10(k);
+                                                    state_4 = _loop_11(k);
                                                     k = out_k_1;
-                                                    if (state_3 === "break")
+                                                    if (state_4 === "break")
                                                         break;
                                                 }
                                                 if (items.length) {
@@ -4999,7 +5419,7 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
         }
         function refresh(force) {
             return __awaiter(this, void 0, void 0, function () {
-                var now, c, _d, e_39;
+                var now, c, _d, e_41;
                 var _e;
                 return __generator(this, function (_f) {
                     switch (_f.label) {
@@ -5019,8 +5439,8 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                             _d.apply(void 0, [(_e.sections = _f.sent(), _e)]);
                             return [2 /*return*/, true];
                         case 3:
-                            e_39 = _f.sent();
-                            error = e_39.message || "erreur";
+                            e_41 = _f.sent();
+                            error = e_41.message || "erreur";
                             return [2 /*return*/, false];
                         case 4:
                             loading = false;
@@ -5187,6 +5607,7 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
         var _d = __m.util, $ = _d.$, $$ = _d.$$, esc = _d.esc, toast = _d.toast, ymd = _d.ymd, fmtLong = _d.fmtLong, fmtTime = _d.fmtTime, PEOPLE = _d.PEOPLE;
         var db = __m.db;
         var nw = __m.news;
+        var ics = __m.ics;
         var t = function (k) { return db.store.t[k]; };
         var pIndex = function (o) { return Math.max(0, PEOPLE.indexOf(o)); };
         var CITY_KEY = "family-city", WX_KEY = "family-weather";
@@ -5210,7 +5631,7 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
         var fnName = function () { return window.FN_LABELS || "wine-labels"; };
         function getJSON(url) {
             return __awaiter(this, void 0, void 0, function () {
-                var r, e_40, sb, _d, data, error;
+                var r, e_42, sb, _d, data, error;
                 return __generator(this, function (_e) {
                     switch (_e.label) {
                         case 0:
@@ -5226,7 +5647,7 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                         case 3: return [2 /*return*/, _e.sent()];
                         case 4: return [3 /*break*/, 6];
                         case 5:
-                            e_40 = _e.sent();
+                            e_42 = _e.sent();
                             return [3 /*break*/, 6];
                         case 6:
                             sb = db.store.sb;
@@ -5302,7 +5723,7 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
         }
         function loadWeather(force) {
             return __awaiter(this, void 0, void 0, function () {
-                var c, url, j, e_41;
+                var c, url, j, e_43;
                 return __generator(this, function (_d) {
                     switch (_d.label) {
                         case 0:
@@ -5327,8 +5748,8 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                             jset(WX_KEY, wx);
                             return [2 /*return*/, true];
                         case 3:
-                            e_41 = _d.sent();
-                            wxError = e_41.message || "erreur";
+                            e_43 = _d.sent();
+                            wxError = e_43.message || "erreur";
                             return [2 /*return*/, false];
                         case 4:
                             wxLoading = false;
@@ -5369,7 +5790,7 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
         var radarTry = 0, radar = null, radarErr = "", radarIdx = -1, radarTimer = null;
         function loadRadar() {
             return __awaiter(this, void 0, void 0, function () {
-                var j, past, e_42;
+                var j, past, e_44;
                 return __generator(this, function (_d) {
                     switch (_d.label) {
                         case 0:
@@ -5388,8 +5809,8 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                             radarIdx = radar.frames.length - 1;
                             return [2 /*return*/, true];
                         case 3:
-                            e_42 = _d.sent();
-                            radarErr = e_42.message || "erreur";
+                            e_44 = _d.sent();
+                            radarErr = e_44.message || "erreur";
                             radar = radar || null;
                             return [2 /*return*/, false];
                         case 4: return [2 /*return*/];
@@ -5421,7 +5842,7 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
         }
         function setFrame(i, first) {
             return __awaiter(this, void 0, void 0, function () {
-                var f, ims, urls, bases, res_1, e_43, t2;
+                var f, ims, urls, bases, res_1, e_45, t2;
                 return __generator(this, function (_d) {
                     switch (_d.label) {
                         case 0:
@@ -5447,7 +5868,7 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                             });
                             return [3 /*break*/, 4];
                         case 3:
-                            e_43 = _d.sent();
+                            e_45 = _d.sent();
                             return [3 /*break*/, 4];
                         case 4: return [3 /*break*/, 6];
                         case 5:
@@ -5466,9 +5887,10 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
         }
         function agendaHTML() {
             var now = /* @__PURE__ */ new Date(), day0 = new Date(now.getFullYear(), now.getMonth(), now.getDate()), day1 = new Date(day0.getTime() + 864e5);
-            var evs = t("family_events").filter(function (e) { return e.starts_at && new Date(e.starts_at) >= day0 && new Date(e.starts_at) < day1; }).sort(function (a, b) { return a.starts_at.localeCompare(b.starts_at); });
+            var xs = ics.externalEvents(day0, day1).map(function (o) { return ({ title: o.title, starts_at: o.start.toISOString(), owner: o.cal.name, allDay: o.allDay, color: o.cal.color }); });
+            var evs = t("family_events").filter(function (e) { return e.starts_at && new Date(e.starts_at) >= day0 && new Date(e.starts_at) < day1; }).concat(xs).sort(function (a, b) { return a.starts_at.localeCompare(b.starts_at); });
             var meals = t("meal_plans").filter(function (p) { return p.meal_date === ymd(now); }).sort(function (a, b) { return (a.meal_type === "midi" ? -1 : 1) - (b.meal_type === "midi" ? -1 : 1); });
-            return "<div class=\"card glass\"><h3 class=\"script\">Agenda du jour</h3>\n    ".concat(evs.map(function (e) { return "<div class=\"row\"><span class=\"dot p".concat(pIndex(e.owner), "\"></span><span class=\"grow\"><b>").concat(esc(e.title), "</b>").concat(e.owner ? " <small class=\"muted\">".concat(esc(e.owner), "</small>") : "", "<br><small>").concat(esc(fmtTime(e.starts_at))).concat(e.notes ? " \xB7 " + esc(String(e.notes).slice(0, 60)) : "", "</small></span></div>"); }).join("") || '<p class="muted">Aucun rendez-vous aujourd\u2019hui.</p>', "\n    ").concat(meals.length ? '<h4 class="subh">\xC0 table</h4>' + meals.map(function (m) { return "<div class=\"row\"><span class=\"chip\">".concat(m.meal_type === "midi" ? "D\xE9jeuner" : "D\xEEner", "</span><b class=\"grow\">").concat(esc(m.title || ""), "</b></div>"); }).join("") : "", "\n    <button class=\"btn small\" data-go=\"agenda\">Ouvrir l\u2019agenda</button></div>");
+            return "<div class=\"card glass\"><h3 class=\"script\">Agenda du jour</h3>\n    ".concat(evs.map(function (e) { return "<div class=\"row\"><span class=\"dot p".concat(pIndex(e.owner), "\" ").concat(e.color ? "style=\"background:".concat(e.color, "\"") : "", "></span><span class=\"grow\"><b>").concat(esc(e.title), "</b>").concat(e.owner ? " <small class=\"muted\">".concat(esc(e.owner), "</small>") : "", "<br><small>").concat(e.allDay ? "Journ\xE9e" : esc(fmtTime(e.starts_at))).concat(e.notes ? " \xB7 " + esc(String(e.notes).slice(0, 60)) : "", "</small></span></div>"); }).join("") || '<p class="muted">Aucun rendez-vous aujourd\u2019hui.</p>', "\n    ").concat(meals.length ? '<h4 class="subh">\xC0 table</h4>' + meals.map(function (m) { return "<div class=\"row\"><span class=\"chip\">".concat(m.meal_type === "midi" ? "D\xE9jeuner" : "D\xEEner", "</span><b class=\"grow\">").concat(esc(m.title || ""), "</b></div>"); }).join("") : "", "\n    <button class=\"btn small\" data-go=\"agenda\">Ouvrir l\u2019agenda</button></div>");
         }
         function newsHTML() {
             var c = nw.read(), list = c && c.sections && c.sections["\xC0 la une"] || [];
@@ -5489,7 +5911,7 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                 var form = $("#cityForm", root);
                 if (form) {
                     form.onsubmit = function (e) { return __awaiter(_this, void 0, void 0, function () {
-                        var q, err_18;
+                        var q, err_19;
                         return __generator(this, function (_d) {
                             switch (_d.label) {
                                 case 0:
@@ -5505,8 +5927,8 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                                     cityResults = _d.sent();
                                     return [3 /*break*/, 4];
                                 case 3:
-                                    err_18 = _d.sent();
-                                    toast("Recherche impossible : " + err_18.message, "err");
+                                    err_19 = _d.sent();
+                                    toast("Recherche impossible : " + err_19.message, "err");
                                     return [2 /*return*/];
                                 case 4:
                                     redraw();
@@ -5597,6 +6019,10 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                             redraw();
                     });
                 }
+                ics.refreshAll(false).then(function (ch) {
+                    if (ch)
+                        redraw();
+                });
                 var nc = nw.read();
                 if (!nc || nc.slot !== nw.slotOf(/* @__PURE__ */ new Date()))
                     nw.refresh(false).then(function (ok) {
@@ -5607,9 +6033,193 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
         };
         return { dashboard: dashboard };
     })();
+    __m.photos = (function () {
+        var _d = __m.util, $ = _d.$, $$ = _d.$$, esc = _d.esc, toast = _d.toast, openModal = _d.openModal, closeModal = _d.closeModal, compressImage = _d.compressImage;
+        var db = __m.db;
+        var t = function () { return db.store.t.family_photos || []; };
+        var album = "", limit = 60;
+        var MARK = "/object/public/photos/";
+        var pathOf = function (u) {
+            var i = String(u || "").indexOf(MARK);
+            return i < 0 ? null : decodeURIComponent(String(u).slice(i + MARK.length));
+        };
+        var sorted = function () { return t().slice().sort(function (a, b) { return String(b.taken_at || b.created_at || "").localeCompare(String(a.taken_at || a.created_at || "")); }); };
+        var albums = function () {
+            var m = {};
+            t().forEach(function (p) {
+                var a = p.album || "Vrac";
+                m[a] = (m[a] || 0) + 1;
+            });
+            return m;
+        };
+        var monthLabel = function (s) {
+            var d = new Date(s);
+            return isNaN(d) ? "Sans date" : d.toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
+        };
+        var photos = {
+            html: function () {
+                var al = albums(), names = Object.keys(al).sort(), list = sorted().filter(function (p) { return !album || (p.album || "Vrac") === album; }), shown = list.slice(0, limit);
+                var last = "", body = "";
+                shown.forEach(function (p) {
+                    var m = monthLabel(p.taken_at || p.created_at);
+                    if (m !== last) {
+                        body += "".concat(last ? "</div>" : "", "<h4 class=\"pmonth\">").concat(esc(m), "</h4><div class=\"pgrid\">");
+                        last = m;
+                    }
+                    body += "<button class=\"pth\" data-ph=\"".concat(p.id, "\" aria-label=\"Ouvrir la photo\"><span style=\"background-image:url('").concat(esc(p.thumb_url || p.url), "')\"></span></button>");
+                });
+                if (last)
+                    body += "</div>";
+                return "<div class=\"card glass accent\"><b>Photos de la famille.</b> Chacun envoie ses photos depuis son t\u00E9l\u00E9phone : le s\u00E9lecteur propose la phototh\u00E8que (Apple Photos, Google Photos, appareil photo\u2026). Elles sont ensuite visibles sur tous vos appareils.</div>\n      <div class=\"bar\"><input id=\"palbum\" list=\"palbums\" placeholder=\"Album (ex. Vacances)\" value=\"".concat(esc(album || ""), "\" aria-label=\"Album d\u2019envoi\"><datalist id=\"palbums\">").concat(names.map(function (n) { return "<option value=\"".concat(esc(n), "\">"); }).join(""), "</datalist>\n        <label class=\"btn primary filebtn\">\uFF0B Ajouter des photos<input type=\"file\" id=\"pfiles\" accept=\"image/*\" multiple hidden></label></div>\n      <div class=\"chips\"><button class=\"chip ").concat(!album ? "on" : "", "\" data-alb=\"\">Toutes (").concat(t().length, ")</button>").concat(names.map(function (n) { return "<button class=\"chip ".concat(album === n ? "on" : "", "\" data-alb=\"").concat(esc(n), "\">").concat(esc(n), " (").concat(al[n], ")</button>"); }).join(""), "</div>\n      ").concat(body || '<div class="empty">Aucune photo pour le moment.</div>', "\n      ").concat(list.length > limit ? "<p style=\"text-align:center\"><button class=\"btn\" id=\"pmore\">Afficher plus (".concat(list.length - limit, ")</button></p>") : "", "\n      <p class=\"muted small\">Stockage gratuit Supabase (1 Go) : les photos sont r\u00E9duites \u00E0 1600 px pour en garder beaucoup.</p>");
+            },
+            bind: function (root, rerender) {
+                var _this = this;
+                $$("[data-alb]", root).forEach(function (b) { return b.onclick = function () {
+                    album = b.dataset.alb;
+                    limit = 60;
+                    rerender();
+                }; });
+                var more = $("#pmore", root);
+                if (more)
+                    more.onclick = function () {
+                        limit += 60;
+                        rerender();
+                    };
+                $$("[data-ph]", root).forEach(function (b) { return b.onclick = function () { return viewer(b.dataset.ph, rerender); }; });
+                $("#pfiles", root).onchange = function (e) { return __awaiter(_this, void 0, void 0, function () {
+                    var files, alb, ok, fail, i, big, thumb, url, turl, err_20;
+                    return __generator(this, function (_d) {
+                        switch (_d.label) {
+                            case 0:
+                                files = [].slice.call(e.target.files || []).filter(function (f) { return /^image\//.test(f.type) || /\.(jpe?g|png|heic|webp)$/i.test(f.name); });
+                                e.target.value = "";
+                                if (!files.length)
+                                    return [2 /*return*/];
+                                alb = ($("#palbum", root).value || "").trim() || "Vrac";
+                                ok = 0, fail = "";
+                                i = 0;
+                                _d.label = 1;
+                            case 1:
+                                if (!(i < files.length)) return [3 /*break*/, 10];
+                                toast("Envoi ".concat(i + 1, "/").concat(files.length, "\u2026"));
+                                _d.label = 2;
+                            case 2:
+                                _d.trys.push([2, 8, , 9]);
+                                return [4 /*yield*/, compressImage(files[i], 1600, 0.8)];
+                            case 3:
+                                big = _d.sent();
+                                return [4 /*yield*/, compressImage(files[i], 420, 0.75)];
+                            case 4:
+                                thumb = _d.sent();
+                                return [4 /*yield*/, db.uploadPhoto(big, "album")];
+                            case 5:
+                                url = _d.sent();
+                                return [4 /*yield*/, db.uploadPhoto(thumb, "album")];
+                            case 6:
+                                turl = _d.sent();
+                                return [4 /*yield*/, db.add("family_photos", { url: url, thumb_url: turl, path: pathOf(url), thumb_path: pathOf(turl), album: alb, uploader: db.store.displayName || "", taken_at: new Date(files[i].lastModified || Date.now()).toISOString() })];
+                            case 7:
+                                _d.sent();
+                                ok++;
+                                return [3 /*break*/, 9];
+                            case 8:
+                                err_20 = _d.sent();
+                                fail = err_20.message || String(err_20);
+                                return [3 /*break*/, 9];
+                            case 9:
+                                i++;
+                                return [3 /*break*/, 1];
+                            case 10:
+                                toast(ok ? "".concat(ok, " photo").concat(ok > 1 ? "s" : "", " ajout\u00E9e").concat(ok > 1 ? "s" : "").concat(fail ? " (erreur : " + fail + ")" : "") : "Envoi impossible : " + fail, ok ? void 0 : "err");
+                                album = alb;
+                                rerender();
+                                return [2 /*return*/];
+                        }
+                    });
+                }); };
+            }
+        };
+        function viewer(id, rerender) {
+            var _this = this;
+            var list = sorted().filter(function (p) { return !album || (p.album || "Vrac") === album; });
+            var i = list.findIndex(function (p) { return p.id === id; });
+            if (i < 0)
+                return;
+            var draw = function () {
+                var p = list[i];
+                openModal("<div class=\"detail pview\"><div class=\"pimg\"><img src=\"".concat(esc(p.url), "\" alt=\"").concat(esc(p.caption || ""), "\"></div>\n      <div class=\"pnav\"><button class=\"btn\" id=\"pprev\" ").concat(i === 0 ? "disabled" : "", ">\u2039</button><span class=\"grow muted small\">").concat(i + 1, " / ").concat(list.length, " \u00B7 ").concat(esc(monthLabel(p.taken_at || p.created_at))).concat(p.uploader ? " \xB7 " + esc(p.uploader) : "", "</span><button class=\"btn\" id=\"pnext\" ").concat(i === list.length - 1 ? "disabled" : "", ">\u203A</button></div>\n      <label class=\"field\"><span>L\u00E9gende</span><input id=\"pcap\" value=\"").concat(esc(p.caption || ""), "\" maxlength=\"200\"></label>\n      <label class=\"field\"><span>Album</span><input id=\"palb\" value=\"").concat(esc(p.album || "Vrac"), "\" maxlength=\"60\"></label>\n      <div class=\"formactions wrap\"><a class=\"btn\" href=\"").concat(esc(p.url), "\" target=\"_blank\" rel=\"noopener\">Ouvrir / enregistrer</a><button class=\"btn danger\" id=\"pdel\">Supprimer</button><span class=\"grow\"></span><button class=\"btn\" id=\"psave\">Enregistrer</button><button class=\"btn ghost\" data-close>Fermer</button></div></div>"), {
+                    wide: true,
+                    onMount: function (r) {
+                        $("[data-close]", r).onclick = function () {
+                            closeModal();
+                            rerender();
+                        };
+                        $("#pprev", r).onclick = function () {
+                            i--;
+                            draw();
+                        };
+                        $("#pnext", r).onclick = function () {
+                            i++;
+                            draw();
+                        };
+                        $("#psave", r).onclick = function () { return __awaiter(_this, void 0, void 0, function () {
+                            var err_21;
+                            return __generator(this, function (_d) {
+                                switch (_d.label) {
+                                    case 0:
+                                        _d.trys.push([0, 2, , 3]);
+                                        return [4 /*yield*/, db.patch("family_photos", p.id, { caption: $("#pcap", r).value.trim(), album: $("#palb", r).value.trim() || "Vrac" })];
+                                    case 1:
+                                        _d.sent();
+                                        toast("Enregistr\xE9");
+                                        return [3 /*break*/, 3];
+                                    case 2:
+                                        err_21 = _d.sent();
+                                        toast(err_21.message, "err");
+                                        return [3 /*break*/, 3];
+                                    case 3: return [2 /*return*/];
+                                }
+                            });
+                        }); };
+                        $("#pdel", r).onclick = function () { return __awaiter(_this, void 0, void 0, function () {
+                            var paths, err_22;
+                            return __generator(this, function (_d) {
+                                switch (_d.label) {
+                                    case 0:
+                                        if (!window.confirm("Supprimer cette photo pour toute la famille ?"))
+                                            return [2 /*return*/];
+                                        _d.label = 1;
+                                    case 1:
+                                        _d.trys.push([1, 3, , 4]);
+                                        return [4 /*yield*/, db.del("family_photos", p.id)];
+                                    case 2:
+                                        _d.sent();
+                                        paths = [p.path, p.thumb_path].filter(Boolean);
+                                        if (paths.length)
+                                            db.store.sb.storage.from("photos").remove(paths).then(null, function () {
+                                            });
+                                        closeModal();
+                                        rerender();
+                                        return [3 /*break*/, 4];
+                                    case 3:
+                                        err_22 = _d.sent();
+                                        toast(err_22.message, "err");
+                                        return [3 /*break*/, 4];
+                                    case 4: return [2 /*return*/];
+                                }
+                            });
+                        }); };
+                    }
+                });
+            };
+            draw();
+        }
+        return { photos: photos };
+    })();
     __m.misc = (function () {
         var _d = __m.util, $ = _d.$, $$ = _d.$$, esc = _d.esc, toast = _d.toast, formDialog = _d.formDialog, openModal = _d.openModal, closeModal = _d.closeModal, ymd = _d.ymd, parseYmd = _d.parseYmd, addDays = _d.addDays, fmtLong = _d.fmtLong, fmtTime = _d.fmtTime, toLocalInput = _d.toLocalInput, PEOPLE = _d.PEOPLE;
         var db = __m.db;
+        var ics = __m.ics;
         var t = function (k) { return db.store.t[k]; };
         var pIndex = function (o) { return Math.max(0, PEOPLE.indexOf(o)); };
         var ART = {
@@ -5624,6 +6234,7 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
         };
         var TILES = [
             ["dashboard", "Tableau de bord", "agenda", "#cfe3f7", "#8fb7e3"],
+            ["photos", "Photos", "news", "#f7dcd2", "#e9a58e"],
             ["recipes", "Recettes", "recettes", "#faf0b0", "#f4e08e"],
             ["menus", "Planning", "menu", "#f3b3a4", "#e5806f"],
             ["courses", "Courses", "courses", "#c6edd8", "#8fc3a6"],
@@ -5652,19 +6263,22 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
         };
         var month = /* @__PURE__ */ new Date();
         month.setDate(1);
+        var extList = [];
         var agenda = {
             html: function () {
                 var first = new Date(month.getFullYear(), month.getMonth(), 1), pad = (first.getDay() + 6) % 7;
                 var start = addDays(first, -pad), key = ymd(/* @__PURE__ */ new Date());
+                extList = ics.externalEvents(start, addDays(start, 42)).map(function (o, i) { return ({ id: "x" + i, ext: true, title: o.title, starts_at: o.start.toISOString(), color: o.cal.color, owner: o.cal.name, allDay: o.allDay, place: o.place }); });
+                var all = t("family_events").concat(extList);
                 var byDay = {};
-                t("family_events").forEach(function (e) {
+                all.forEach(function (e) {
                     var _a;
                     if (e.starts_at)
                         (byDay[_a = ymd(new Date(e.starts_at))] || (byDay[_a] = [])).push(e);
                 });
                 var cells = Array.from({ length: 42 }, function (_, i) { return addDays(start, i); });
-                var monthEvents = t("family_events").filter(function (e) { return e.starts_at && new Date(e.starts_at).getMonth() === month.getMonth() && new Date(e.starts_at).getFullYear() === month.getFullYear(); }).sort(function (a, b) { return a.starts_at.localeCompare(b.starts_at); });
-                return "<div class=\"bar\"><div class=\"seg\"><button id=\"mprev\" aria-label=\"Mois pr\u00E9c\u00E9dent\">\u2039</button><button id=\"mnow\">Aujourd\u2019hui</button><button id=\"mnext\" aria-label=\"Mois suivant\">\u203A</button></div>\n      <b class=\"weeklabel\">".concat(esc(month.toLocaleDateString("fr-FR", { month: "long", year: "numeric" })), "</b><span class=\"grow\"></span><button class=\"btn primary\" id=\"addEv\">\uFF0B Rendez-vous</button></div>\n      <div class=\"legend\">").concat(PEOPLE.map(function (p, i) { return "<span><i class=\"p".concat(i, "\"></i>").concat(p, "</span>"); }).join(""), "</div>\n      <div class=\"month glass\">").concat(["lun", "mar", "mer", "jeu", "ven", "sam", "dim"].map(function (d) { return "<div class=\"dow\">".concat(d, "</div>"); }).join(""), "\n      ").concat(cells.map(function (d) { return "<button class=\"day ".concat(d.getMonth() !== month.getMonth() ? "off" : "", " ").concat(ymd(d) === key ? "today" : "", "\" data-day=\"").concat(ymd(d), "\"><span>").concat(d.getDate(), "</span><div class=\"dots\">").concat((byDay[ymd(d)] || []).slice(0, 4).map(function (e) { return "<i class=\"p".concat(pIndex(e.owner), "\"></i>"); }).join(""), "</div></button>"); }).join(""), "</div>\n      <div class=\"card glass\"><h3 class=\"script\">Ce mois-ci</h3>").concat(monthEvents.map(function (e) { return "<button class=\"row evrow\" data-ev=\"".concat(e.id, "\"><span class=\"dot p").concat(pIndex(e.owner), "\"></span><span class=\"grow\"><b>").concat(esc(e.title), "</b><br><small>").concat(esc(fmtLong(new Date(e.starts_at))), " \u00B7 ").concat(esc(fmtTime(e.starts_at)), " \u00B7 ").concat(esc(e.owner || ""), "</small></span></button>"); }).join("") || '<p class="muted">Aucun rendez-vous ce mois-ci.</p>', "\n      <p class=\"muted small\">La synchronisation avec Google Agenda n\u2019est pas encore branch\u00E9e : les rendez-vous saisis ici sont partag\u00E9s entre vos appareils.</p></div>");
+                var monthEvents = all.filter(function (e) { return e.starts_at && new Date(e.starts_at).getMonth() === month.getMonth() && new Date(e.starts_at).getFullYear() === month.getFullYear(); }).sort(function (a, b) { return a.starts_at.localeCompare(b.starts_at); });
+                return "<div class=\"bar\"><div class=\"seg\"><button id=\"mprev\" aria-label=\"Mois pr\u00E9c\u00E9dent\">\u2039</button><button id=\"mnow\">Aujourd\u2019hui</button><button id=\"mnext\" aria-label=\"Mois suivant\">\u203A</button></div>\n      <b class=\"weeklabel\">".concat(esc(month.toLocaleDateString("fr-FR", { month: "long", year: "numeric" })), "</b><span class=\"grow\"></span><button class=\"btn\" id=\"calBtn\">Calendriers</button><button class=\"btn primary\" id=\"addEv\">\uFF0B Rendez-vous</button></div>\n      <div class=\"legend\">").concat(PEOPLE.map(function (p, i) { return "<span><i class=\"p".concat(i, "\"></i>").concat(p, "</span>"); }).join(""), "</div>\n      <div class=\"month glass\">").concat(["lun", "mar", "mer", "jeu", "ven", "sam", "dim"].map(function (d) { return "<div class=\"dow\">".concat(d, "</div>"); }).join(""), "\n      ").concat(cells.map(function (d) { return "<button class=\"day ".concat(d.getMonth() !== month.getMonth() ? "off" : "", " ").concat(ymd(d) === key ? "today" : "", "\" data-day=\"").concat(ymd(d), "\"><span>").concat(d.getDate(), "</span><div class=\"dots\">").concat((byDay[ymd(d)] || []).slice(0, 4).map(function (e) { return "<i class=\"p".concat(pIndex(e.owner), "\" ").concat(e.ext ? "style=\"background:".concat(e.color, "\"") : "", "></i>"); }).join(""), "</div></button>"); }).join(""), "</div>\n      <div class=\"card glass\"><h3 class=\"script\">Ce mois-ci</h3>").concat(monthEvents.map(function (e) { return "<button class=\"row evrow\" ".concat(e.ext ? "data-xev=\"".concat(e.id, "\"") : "data-ev=\"".concat(e.id, "\""), "><span class=\"dot p").concat(pIndex(e.owner), "\" ").concat(e.ext ? "style=\"background:".concat(e.color, "\"") : "", "></span><span class=\"grow\"><b>").concat(esc(e.title), "</b><br><small>").concat(esc(fmtLong(new Date(e.starts_at))), " \u00B7 ").concat(e.allDay ? "Journ\xE9e" : esc(fmtTime(e.starts_at)), " \u00B7 ").concat(esc(e.owner || ""), "</small></span></button>"); }).join("") || '<p class="muted">Aucun rendez-vous ce mois-ci.</p>', "\n      <p class=\"muted small\">Les rendez-vous saisis ici sont partag\u00E9s entre vos appareils. Les calendriers ajout\u00E9s (Google, iCloud, Outlook\u2026) sont en lecture seule et propres \u00E0 cet appareil.</p></div>");
             },
             bind: function (root, rerender) {
                 $("#mprev", root).onclick = function () {
@@ -5681,16 +6295,106 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                     rerender();
                 };
                 $("#addEv", root).onclick = function () { return editEvent({}, ymd(/* @__PURE__ */ new Date())); };
+                $("#calBtn", root).onclick = function () { return calendarsDialog(rerender); };
+                ics.refreshAll(false).then(function (ch) {
+                    if (ch)
+                        rerender();
+                });
                 root.onclick = function (e) {
                     var d = e.target.closest("[data-day]");
                     if (d)
                         return editEvent({}, d.dataset.day);
+                    var xe = e.target.closest("[data-xev]");
+                    if (xe) {
+                        var x = extList.find(function (q) { return q.id === xe.dataset.xev; });
+                        if (x)
+                            openModal("<h2 class=\"script\">".concat(esc(x.title), "</h2><p>").concat(esc(fmtLong(new Date(x.starts_at))), " \u00B7 ").concat(x.allDay ? "Journ\xE9e" : esc(fmtTime(x.starts_at)), "</p>").concat(x.place ? "<p>".concat(esc(x.place), "</p>") : "", "<p class=\"muted small\">Calendrier \u00AB ").concat(esc(x.owner), " \u00BB (lecture seule)</p><div class=\"formactions\"><span class=\"grow\"></span><button class=\"btn\" data-close>Fermer</button></div>"), { onMount: function (r) {
+                                    $("[data-close]", r).onclick = closeModal;
+                                } });
+                        return;
+                    }
                     var ev = e.target.closest("[data-ev]");
                     if (ev)
                         return editEvent(t("family_events").find(function (x) { return x.id === ev.dataset.ev; }));
                 };
             }
         };
+        function calendarsDialog(rerender) {
+            var _this = this;
+            var body = function () {
+                var l = ics.calendars();
+                return "<h2 class=\"script\">Calendriers</h2>\n    <p class=\"muted small\">Ajoutez le lien d\u2019abonnement iCal (.ics) d\u2019un agenda : Google Agenda (Param\u00E8tres de l\u2019agenda \u203A Adresse secr\u00E8te au format iCal), iCloud (Partager \u203A Calendrier public), Outlook (Publier le calendrier). Les \u00E9v\u00E9nements s\u2019affichent dans l\u2019agenda, en lecture seule.</p>\n    ".concat(l.map(function (c) { return "<div class=\"row\"><span class=\"dot\" style=\"background:".concat(c.color, "\"></span><span class=\"grow\"><b>").concat(esc(c.name), "</b>").concat(ics.calError(c.id) ? "<br><small class=\"err\">".concat(esc(ics.calError(c.id)), "</small>") : "", "</span><button class=\"btn small\" data-del=\"").concat(c.id, "\">Retirer</button></div>"); }).join("") || '<p class="muted">Aucun calendrier ajout\xE9.</p>', "\n    <form id=\"calForm\" class=\"stack\"><label class=\"field\"><span>Nom</span><input name=\"name\" placeholder=\"Ex. Calendrier de l\u2019\u00E9cole\" required></label>\n    <label class=\"field\"><span>Lien iCal</span><input name=\"url\" placeholder=\"https://\u2026 ou webcal://\u2026\" required></label><button class=\"btn primary\" type=\"submit\">Ajouter ce calendrier</button></form>\n    <label class=\"field\"><span>Ou importer un fichier .ics (copie unique dans vos rendez-vous partag\u00E9s)</span><input type=\"file\" id=\"icsFile\" accept=\".ics,text/calendar\"></label>\n    <div class=\"formactions\"><span class=\"grow\"></span><button class=\"btn\" data-close>Fermer</button></div>");
+            };
+            var mount = function (r) {
+                $("[data-close]", r).onclick = function () {
+                    closeModal();
+                    rerender();
+                };
+                $$("[data-del]", r).forEach(function (b) { return b.onclick = function () {
+                    ics.removeCalendar(b.dataset.del);
+                    redraw(r);
+                }; });
+                $("#calForm", r).onsubmit = function (e) { return __awaiter(_this, void 0, void 0, function () {
+                    var f, btn;
+                    return __generator(this, function (_d) {
+                        switch (_d.label) {
+                            case 0:
+                                e.preventDefault();
+                                f = e.target;
+                                ics.addCalendar(f.name.value.trim(), f.url.value);
+                                btn = f.querySelector("button");
+                                btn.disabled = true;
+                                btn.textContent = "Chargement\u2026";
+                                return [4 /*yield*/, ics.refreshAll(true)];
+                            case 1:
+                                _d.sent();
+                                redraw(r);
+                                return [2 /*return*/];
+                        }
+                    });
+                }); };
+                $("#icsFile", r).onchange = function (e) { return __awaiter(_this, void 0, void 0, function () {
+                    var file, text, from, to, rows, err_23;
+                    return __generator(this, function (_d) {
+                        switch (_d.label) {
+                            case 0:
+                                file = e.target.files[0];
+                                if (!file)
+                                    return [2 /*return*/];
+                                _d.label = 1;
+                            case 1:
+                                _d.trys.push([1, 4, , 5]);
+                                return [4 /*yield*/, new Promise(function (res, rej) {
+                                        var fr = new FileReader();
+                                        fr.onload = function () { return res(fr.result); };
+                                        fr.onerror = function () { return rej(new Error("lecture du fichier")); };
+                                        fr.readAsText(file);
+                                    })];
+                            case 2:
+                                text = _d.sent();
+                                from = addDays(/* @__PURE__ */ new Date(), -31), to = addDays(/* @__PURE__ */ new Date(), 366);
+                                rows = ics.expand(ics.parseICS(text), from, to, {}).map(function (o) { return ({ title: o.title, owner: "Famille", starts_at: o.start.toISOString(), ends_at: o.end ? o.end.toISOString() : null }); });
+                                if (!rows.length)
+                                    throw new Error("aucun \xE9v\xE9nement trouv\xE9");
+                                return [4 /*yield*/, db.addMany("family_events", rows)];
+                            case 3:
+                                _d.sent();
+                                toast(rows.length + " rendez-vous import\xE9s");
+                                closeModal();
+                                rerender();
+                                return [3 /*break*/, 5];
+                            case 4:
+                                err_23 = _d.sent();
+                                toast("Import impossible : " + err_23.message, "err");
+                                return [3 /*break*/, 5];
+                            case 5: return [2 /*return*/];
+                        }
+                    });
+                }); };
+            };
+            var redraw = function () { return openModal(body(), { onMount: mount }); };
+            openModal(body(), { onMount: mount });
+        }
         function editEvent(ev, day) {
             var _this = this;
             if (ev === void 0) { ev = {}; }
@@ -5703,6 +6407,40 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                     { name: "ends_at", label: "Fin", type: "datetime-local" }
                 ],
                 values: __spreadProps(__spreadValues({ owner: "Famille" }, ev), { starts_at: ev.starts_at ? toLocalInput(ev.starts_at) : "".concat(day, "T09:00"), ends_at: ev.ends_at ? toLocalInput(ev.ends_at) : "" }),
+                extra: "<div class=\"exportrow\"><span class=\"muted small\">Ajouter ce rendez-vous \u00E0 mon agenda :</span> <button type=\"button\" class=\"btn small\" id=\"toGoogle\">Google Agenda</button> <button type=\"button\" class=\"btn small\" id=\"toIcs\">Apple / Outlook (.ics)</button></div>",
+                onMount: function (root, form) {
+                    var read = function () {
+                        var f = form.elements, s = f.starts_at.value ? new Date(f.starts_at.value) : null;
+                        if (!f.title.value.trim() || !s || isNaN(s)) {
+                            toast("Renseignez l\u2019intitul\xE9 et le d\xE9but", "err");
+                            return null;
+                        }
+                        var e = f.ends_at.value ? new Date(f.ends_at.value) : new Date(s.getTime() + 36e5);
+                        return { title: f.title.value.trim(), s: s, e: e };
+                    };
+                    var z = function (d) { return d.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, ""); };
+                    $("#toGoogle", root).onclick = function () {
+                        var x = read();
+                        if (x)
+                            window.open("https://calendar.google.com/calendar/render?action=TEMPLATE&text=" + encodeURIComponent(x.title) + "&dates=" + z(x.s) + "/" + z(x.e), "_blank");
+                    };
+                    $("#toIcs", root).onclick = function () {
+                        var x = read();
+                        if (!x)
+                            return;
+                        var text = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Family//FR", "BEGIN:VEVENT", "UID:" + Date.now() + "@family", "DTSTAMP:" + z(/* @__PURE__ */ new Date()), "DTSTART:" + z(x.s), "DTEND:" + z(x.e), "SUMMARY:" + x.title.replace(/([,;\\])/g, "\\$1"), "END:VEVENT", "END:VCALENDAR"].join("\r\n");
+                        var a = document.createElement("a");
+                        if ("download" in a && window.Blob && window.URL) {
+                            a.href = URL.createObjectURL(new Blob([text], { type: "text/calendar" }));
+                            a.download = "rendez-vous.ics";
+                            document.body.appendChild(a);
+                            a.click();
+                            document.body.removeChild(a);
+                        }
+                        else
+                            window.location.href = "data:text/calendar;charset=utf-8," + encodeURIComponent(text);
+                    };
+                },
                 danger: ev.id ? { label: "Supprimer", confirm: "Supprimer ce rendez-vous ?", run: function () { return db.del("family_events", ev.id); } } : null,
                 onSubmit: function (v) { return __awaiter(_this, void 0, void 0, function () {
                     var row;
@@ -5758,7 +6496,7 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                         fields: [{ name: "title", label: "Nom", required: true, full: true }, { name: "spotify_url", label: "Lien Spotify ou Deezer", required: true, full: true, placeholder: "https://open.spotify.com/playlist/\u2026 ou https://www.deezer.com/fr/playlist/\u2026", hint: "Spotify : \u22EF \u203A Partager \u203A Copier le lien. Deezer : Partager \u203A Copier le lien." }, { name: "owner", label: "\xC0 qui", type: "select", options: PEOPLE }],
                         danger: p.id ? { label: "Supprimer", confirm: "Supprimer cette playlist ?", run: function () { return db.del("playlists", p.id); } } : null,
                         onSubmit: function (v) { return __awaiter(_this, void 0, void 0, function () {
-                            var i, r, j, e_44, save, e_45, row;
+                            var i, r, j, e_46, save, e_47, row;
                             return __generator(this, function (_d) {
                                 switch (_d.label) {
                                     case 0:
@@ -5778,7 +6516,7 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                                             v.spotify_url = j.web;
                                         return [3 /*break*/, 4];
                                     case 3:
-                                        e_44 = _d.sent();
+                                        e_46 = _d.sent();
                                         return [3 /*break*/, 4];
                                     case 4:
                                         save = function (row) { return p.id ? db.patch("playlists", p.id, row) : db.add("playlists", row); };
@@ -5790,15 +6528,15 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                                         _d.sent();
                                         return [3 /*break*/, 11];
                                     case 7:
-                                        e_45 = _d.sent();
-                                        if (!/owner/i.test(e_45.message || "")) return [3 /*break*/, 9];
+                                        e_47 = _d.sent();
+                                        if (!/owner/i.test(e_47.message || "")) return [3 /*break*/, 9];
                                         row = __spreadValues({}, v);
                                         delete row.owner;
                                         return [4 /*yield*/, save(row)];
                                     case 8:
                                         _d.sent();
                                         return [3 /*break*/, 10];
-                                    case 9: throw e_45;
+                                    case 9: throw e_47;
                                     case 10: return [3 /*break*/, 11];
                                     case 11: return [2 /*return*/];
                                 }
@@ -5875,6 +6613,7 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
         var _e = __m.news, news = _e.news, stopReading = _e.stopReading;
         var _f = __m.misc, home = _f.home, agenda = _f.agenda, music = _f.music, homebook = _f.homebook;
         var dashboard = __m.dashboard.dashboard;
+        var photos = __m.photos.photos;
         var PAGES = {
             home: { icon: "", label: "Accueil", title: "Bonjour \xE0 tous", mod: home, tables: ["meal_plans", "family_events", "shopping_items", "recipes", "cellar_items"] },
             dashboard: { icon: "", label: "Tableau de bord", title: "Le tableau de bord", mod: dashboard, tables: ["family_events", "meal_plans"] },
@@ -5882,6 +6621,7 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
             menus: { icon: "", label: "Planning de la semaine", title: "Le planning des repas", mod: menus, tables: ["meal_plans", "recipes"] },
             courses: { icon: "", label: "Liste de courses", title: "La liste de courses", mod: courses, tables: ["shopping_items"] },
             cellar: { icon: "", label: "Cave & spiritueux", title: "Notre cave", mod: cellar, tables: ["cellar_items"] },
+            photos: { icon: "", label: "Photos", title: "Les photos", mod: photos, tables: ["family_photos"] },
             agenda: { icon: "", label: "Agenda", title: "L\u2019agenda familial", mod: agenda, tables: ["family_events"] },
             news: { icon: "", label: "Actualit\xE9s", title: "L\u2019actualit\xE9 du jour", mod: news, tables: [] },
             homebook: { icon: "", label: "Maison", title: "La maison", mod: homebook, tables: ["family_notes"] },
@@ -5958,7 +6698,7 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
         }
         function enter(user) {
             return __awaiter(this, void 0, void 0, function () {
-                var e_46, missing;
+                var e_48, missing;
                 return __generator(this, function (_d) {
                     switch (_d.label) {
                         case 0:
@@ -5984,10 +6724,10 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                             db.startRealtime();
                             return [3 /*break*/, 5];
                         case 4:
-                            e_46 = _d.sent();
-                            console.error(e_46);
-                            missing = /relation|does not exist|schema cache|permission|42P01|PGRST/i.test(e_46.message || "");
-                            $("#banner").innerHTML = "<div class=\"card glass warn\"><b>Impossible de charger les donn\u00E9es.</b> ".concat(missing ? "Les tables ne sont pas pr\xEAtes : ex\xE9cutez <code>supabase/002_family_sync.sql</code> dans le SQL Editor de Supabase." : esc(e_46.message || ""), "</div>");
+                            e_48 = _d.sent();
+                            console.error(e_48);
+                            missing = /relation|does not exist|schema cache|permission|42P01|PGRST/i.test(e_48.message || "");
+                            $("#banner").innerHTML = "<div class=\"card glass warn\"><b>Impossible de charger les donn\u00E9es.</b> ".concat(missing ? "Les tables ne sont pas pr\xEAtes : ex\xE9cutez <code>supabase/002_family_sync.sql</code> dans le SQL Editor de Supabase." : esc(e_48.message || ""), "</div>");
                             db.startRealtime();
                             return [3 /*break*/, 5];
                         case 5: return [2 /*return*/];

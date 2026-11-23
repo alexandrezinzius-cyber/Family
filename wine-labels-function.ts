@@ -106,6 +106,15 @@ Deno.serve(async req => {
       const r = await fetch(u, { headers: { 'User-Agent': UA, Accept: 'application/json' } });
       return new Response(await r.text(), { status: r.status, headers: { ...CORS, 'Content-Type': 'application/json' } });
     }
+    if (typeof body.ics === 'string') { // lecture d'un agenda iCal public (les agendas bloquent l'accès direct depuis un site)
+      let u: URL; try { u = new URL(body.ics.replace(/^webcal:\/\//i, 'https://')); } catch { return json({ error: 'lien invalide' }, 400); }
+      if (u.protocol !== 'https:' || /^(localhost|127\.|10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.|\[)/i.test(u.hostname) || !u.hostname.includes('.')) return json({ error: 'hôte non autorisé' }, 400);
+      const r = await fetch(u, { headers: { 'User-Agent': UA, Accept: 'text/calendar,*/*' }, redirect: 'follow' });
+      if (!r.ok) return json({ error: 'agenda inaccessible (' + r.status + ')' }, 200);
+      const text = (await r.text()).slice(0, 3_000_000);
+      if (!/BEGIN:VCALENDAR/.test(text)) return json({ error: 'ce lien ne renvoie pas un calendrier iCal' }, 200);
+      return json({ text });
+    }
     if (typeof body.resolve === 'string') { // suit la redirection d'un lien court Deezer
       const u = new URL(body.resolve); if (u.protocol !== 'https:' || !/^(link\.deezer\.com|deezer\.page\.link|(www\.)?deezer\.com)$/.test(u.hostname)) return json({ error: 'hôte non autorisé' }, 400);
       const r = await fetch(u, { headers: { 'User-Agent': UA }, redirect: 'follow' });
