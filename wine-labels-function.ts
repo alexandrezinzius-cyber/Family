@@ -106,6 +106,13 @@ Deno.serve(async req => {
       const r = await fetch(u, { headers: { 'User-Agent': UA, Accept: 'application/json' } });
       return new Response(await r.text(), { status: r.status, headers: { ...CORS, 'Content-Type': 'application/json' } });
     }
+    if (typeof body.resolve === 'string') { // suit la redirection d'un lien court Deezer
+      const u = new URL(body.resolve); if (u.protocol !== 'https:' || !/^(link\.deezer\.com|deezer\.page\.link|(www\.)?deezer\.com)$/.test(u.hostname)) return json({ error: 'hôte non autorisé' }, 400);
+      const r = await fetch(u, { headers: { 'User-Agent': UA }, redirect: 'follow' });
+      let url = r.url; const m = (await r.text().catch(() => '')).match(/deezer\.com\/(?:[a-z]{2}(?:-[a-z]{2})?\/)?(playlist|album|track)\/(\d+)/);
+      if (!/deezer\.com\/(?:[a-z]{2}(?:-[a-z]{2})?\/)?(playlist|album|track)\/\d+/.test(url) && m) url = 'https://www.deezer.com/' + m[1] + '/' + m[2];
+      return json({ url });
+    }
     if (Array.isArray(body.tiles)) {
       const tiles = await Promise.all(body.tiles.slice(0, 20).map((u: string) => tileData(String(u)).catch(() => null)));
       return json({ tiles });

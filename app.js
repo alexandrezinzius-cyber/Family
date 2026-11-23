@@ -5758,7 +5758,7 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                         fields: [{ name: "title", label: "Nom", required: true, full: true }, { name: "spotify_url", label: "Lien Spotify ou Deezer", required: true, full: true, placeholder: "https://open.spotify.com/playlist/\u2026 ou https://www.deezer.com/fr/playlist/\u2026", hint: "Spotify : \u22EF \u203A Partager \u203A Copier le lien. Deezer : Partager \u203A Copier le lien." }, { name: "owner", label: "\xC0 qui", type: "select", options: PEOPLE }],
                         danger: p.id ? { label: "Supprimer", confirm: "Supprimer cette playlist ?", run: function () { return db.del("playlists", p.id); } } : null,
                         onSubmit: function (v) { return __awaiter(_this, void 0, void 0, function () {
-                            var i;
+                            var i, r, j, e_44, save, e_45, row;
                             return __generator(this, function (_d) {
                                 switch (_d.label) {
                                     case 0:
@@ -5766,16 +5766,41 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                                         if (!i)
                                             throw new Error("Lien non reconnu : collez un lien de playlist Spotify ou Deezer.");
                                         v.spotify_url = i.web;
-                                        if (!p.id) return [3 /*break*/, 2];
-                                        return [4 /*yield*/, db.patch("playlists", p.id, v)];
+                                        if (!(i.type === "short")) return [3 /*break*/, 4];
+                                        _d.label = 1;
                                     case 1:
-                                        _d.sent();
+                                        _d.trys.push([1, 3, , 4]);
+                                        return [4 /*yield*/, db.store.sb.functions.invoke(window.FN_LABELS || "wine-labels", { body: { resolve: v.spotify_url } })];
+                                    case 2:
+                                        r = _d.sent();
+                                        j = r.data && spotifyInfo(r.data.url);
+                                        if (j && j.type !== "short")
+                                            v.spotify_url = j.web;
                                         return [3 /*break*/, 4];
-                                    case 2: return [4 /*yield*/, db.add("playlists", v)];
                                     case 3:
+                                        e_44 = _d.sent();
+                                        return [3 /*break*/, 4];
+                                    case 4:
+                                        save = function (row) { return p.id ? db.patch("playlists", p.id, row) : db.add("playlists", row); };
+                                        _d.label = 5;
+                                    case 5:
+                                        _d.trys.push([5, 7, , 11]);
+                                        return [4 /*yield*/, save(v)];
+                                    case 6:
                                         _d.sent();
-                                        _d.label = 4;
-                                    case 4: return [2 /*return*/];
+                                        return [3 /*break*/, 11];
+                                    case 7:
+                                        e_45 = _d.sent();
+                                        if (!/owner/i.test(e_45.message || "")) return [3 /*break*/, 9];
+                                        row = __spreadValues({}, v);
+                                        delete row.owner;
+                                        return [4 /*yield*/, save(row)];
+                                    case 8:
+                                        _d.sent();
+                                        return [3 /*break*/, 10];
+                                    case 9: throw e_45;
+                                    case 10: return [3 /*break*/, 11];
+                                    case 11: return [2 /*return*/];
                                 }
                             });
                         }); }
@@ -5933,7 +5958,7 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
         }
         function enter(user) {
             return __awaiter(this, void 0, void 0, function () {
-                var e_44, missing;
+                var e_46, missing;
                 return __generator(this, function (_d) {
                     switch (_d.label) {
                         case 0:
@@ -5959,10 +5984,10 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                             db.startRealtime();
                             return [3 /*break*/, 5];
                         case 4:
-                            e_44 = _d.sent();
-                            console.error(e_44);
-                            missing = /relation|does not exist|schema cache|permission|42P01|PGRST/i.test(e_44.message || "");
-                            $("#banner").innerHTML = "<div class=\"card glass warn\"><b>Impossible de charger les donn\u00E9es.</b> ".concat(missing ? "Les tables ne sont pas pr\xEAtes : ex\xE9cutez <code>supabase/002_family_sync.sql</code> dans le SQL Editor de Supabase." : esc(e_44.message || ""), "</div>");
+                            e_46 = _d.sent();
+                            console.error(e_46);
+                            missing = /relation|does not exist|schema cache|permission|42P01|PGRST/i.test(e_46.message || "");
+                            $("#banner").innerHTML = "<div class=\"card glass warn\"><b>Impossible de charger les donn\u00E9es.</b> ".concat(missing ? "Les tables ne sont pas pr\xEAtes : ex\xE9cutez <code>supabase/002_family_sync.sql</code> dans le SQL Editor de Supabase." : esc(e_46.message || ""), "</div>");
                             db.startRealtime();
                             return [3 /*break*/, 5];
                         case 5: return [2 /*return*/];
