@@ -327,6 +327,41 @@ main.sheet { position: relative; background: var(--sheet); border-radius: 38px 3
 .pimg{text-align:center;background:#111;border-radius:12px}.pimg img{max-width:100%;max-height:60vh;display:block;margin:0 auto}
 .pnav{display:-webkit-flex;display:flex;-webkit-align-items:center;align-items:center;margin:8px 0}.pnav .grow{text-align:center}
 @media(max-width:640px){.pth{width:calc(33.33% - 6px)}}
+.radiolist{display:-webkit-flex;display:flex;-webkit-flex-wrap:wrap;flex-wrap:wrap}
+.radiobtn{display:block;text-align:left;margin:0 8px 8px 0;min-width:140px}.radiobtn b,.radiobtn small{display:block}.radiobtn small{opacity:.7}
+.radiobtn.on{background:#2e9e4f;color:#fff;border-color:#2e9e4f}.radiobtn.on small{opacity:.95}
+/* Diaporama (cadre photo) */
+#slideshow{position:fixed;left:0;top:0;right:0;bottom:0;z-index:99999;background:#000;color:#fff;overflow:hidden}
+.ssl{position:absolute;left:0;top:0;right:0;bottom:0;background-position:center;background-repeat:no-repeat;background-size:contain;opacity:0;-webkit-transition:opacity 1.2s;transition:opacity 1.2s}
+#slideshow[data-fit=cover] .ssl{background-size:cover}.ssl.on{opacity:1}
+.sscap{position:absolute;left:0;right:0;bottom:0;padding:34px 24px 20px;text-align:center;font-size:1.3rem;background:-webkit-linear-gradient(top,rgba(0,0,0,0),rgba(0,0,0,.6));background:linear-gradient(to bottom,rgba(0,0,0,0),rgba(0,0,0,.6))}.sscap:empty{display:none}
+.ssclock{position:absolute;left:22px;top:18px;text-shadow:0 1px 6px rgba(0,0,0,.8)}.ssclock b{display:block;font-size:3.2rem;font-weight:300;line-height:1}.ssclock span{display:block;text-transform:capitalize;opacity:.9}
+.ssbar{position:absolute;right:16px;top:16px;opacity:0;-webkit-transition:opacity .3s;transition:opacity .3s;pointer-events:none}.ssbar.vis{opacity:1;pointer-events:auto}
+.ssbar button{margin-left:8px;padding:10px 16px;border:0;border-radius:12px;background:rgba(255,255,255,.25);color:#fff;font-size:1rem}
+/* Tableau de bord en paysage (iPad à l'horizontale) : tout visible sans défilement */
+@media (orientation:landscape) and (min-width:900px){
+  #appShell{max-width:none}
+  .pagehead{margin-bottom:0}.pagehead h1{font-size:1.5rem;margin:0}
+  .dash{display:-webkit-flex;display:flex;-webkit-align-items:flex-start;align-items:flex-start;margin:0 -7px}
+  .dash .card{margin:0 7px 0;padding:10px 14px;box-sizing:border-box}
+  .dashwx,.dashradar{-webkit-flex:1 1 33%;flex:1 1 33%;min-width:0}
+  .dash .grid2{display:block;-webkit-flex:1 1 33%;flex:1 1 33%;min-width:0}
+  .dash .grid2>div{margin:0 0 8px}.dash .grid2 .card{margin:0;max-height:200px;overflow-y:auto;-webkit-overflow-scrolling:touch}
+  .dash .wxhead{-webkit-flex-wrap:wrap;flex-wrap:wrap}.dash .wxhead .btn{margin-top:4px}
+  .dash .wxnow{margin:2px 0 6px}.dash .wxtemp{font-size:2rem}
+  .dash .wxhours{-webkit-flex-wrap:wrap;flex-wrap:wrap;overflow:visible;padding:0}
+  .dash .wxh{width:19%;margin:0 1% 6px 0;padding:5px 0}
+  .dash .radar{max-width:none}
+}
+/* lecteur MP3 */
+.mp3now{display:-webkit-flex;display:flex;margin:6px 0}
+.mp3ctl{display:-webkit-flex;display:flex;-webkit-flex-wrap:wrap;flex-wrap:wrap}.mp3ctl .btn{margin:0 8px 8px 0}
+.mp3bar{display:-webkit-flex;display:flex;-webkit-align-items:center;align-items:center;margin:2px 0 10px}.mp3bar input{-webkit-flex:1;flex:1;margin:0 10px;min-width:0}
+.mp3list{max-height:340px;overflow-y:auto;-webkit-overflow-scrolling:touch;margin-bottom:10px}
+.mp3row{display:-webkit-flex;display:flex;-webkit-align-items:center;align-items:center;padding:4px 8px;border-radius:12px}
+.mp3row.on{background:rgba(255,255,255,.7);font-weight:600}
+.mp3t{-webkit-flex:1;flex:1;min-width:0;text-align:left;background:none;border:0;font:inherit;color:inherit;padding:8px 4px;cursor:pointer}
+.mp3row small{margin:0 8px;white-space:nowrap}
 /* LEGACY-FALLBACK : généré (iOS 9 : pas de grille CSS ni de « gap » sur flex). Classes posées par compat.js */
 .nogap .btn > * + *{margin-left:6px}
 .nogap .bar > *{margin-right:10px;margin-bottom:10px}

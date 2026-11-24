@@ -422,8 +422,8 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
         return { MONTHS: MONTHS, seasonalNames: seasonalNames, scoreRecipe: scoreRecipe };
     })();
     __m.db = (function () {
-        var TABLES = ["cellar_items", "recipes", "meal_plans", "shopping_items", "family_events", "playlists", "family_notes", "family_photos"];
-        var OPTIONAL = ["family_photos"];
+        var TABLES = ["cellar_items", "recipes", "meal_plans", "shopping_items", "family_events", "playlists", "family_notes", "family_photos", "family_tracks"];
+        var OPTIONAL = ["family_photos", "family_tracks"];
         var CACHE_KEY = "family-cache-v3";
         var store = {
             sb: null,
@@ -2883,12 +2883,28 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                     type: pickField(o, ["wine type", "type", "style"]),
                     country: pickField(o, ["country", "pays"]),
                     region: pickField(o, ["region", "region name"]),
-                    price: numOf(pickField(o, ["price", "purchase price", "prix"])),
+                    price: numOf(pickField(o, ["purchase price", "price", "prix"])),
+                    loc: pickField(o, ["cellar location", "location", "emplacement"]),
+                    bin: pickField(o, ["bin number", "bin"]),
                     drink: pickField(o, ["drink", "drinking window", "apogee"])
                 };
             }).filter(function (r) { return r.name; });
         }
         var TYPE_MAP = { red: "Rouge", white: "Blanc", rose: "Ros\xE9", sparkling: "P\xE9tillant", rouge: "Rouge", blanc: "Blanc", dessert: "Liquoreux", fortified: "Fortifi\xE9" };
+        function zoneOf(loc) {
+            var l = norm(loc || "");
+            if (!l)
+                return null;
+            if (/exterieur|terrasse|jardin|abri|balcon/.test(l))
+                return { kind: "exterieur", label: loc };
+            if (/placard|carton|vrac|armoire|cellier|garage|cuisine|rangement|etagere/.test(l))
+                return { kind: "placard", label: loc };
+            return { kind: "cave", label: loc };
+        }
+        var binSlot = function (v) {
+            var n = parseInt(String(v || "").replace(/[^0-9]/g, ""), 10);
+            return n >= 1 && n <= 28 ? n : null;
+        };
         var noteOf = function (r) { return ["Vivino" + (r.rating ? " : \u2605 ".concat(String(r.rating).replace(".", ","), "/5") : ""), r.comment].filter(Boolean).join(" \u2014 "); };
         var tokens = function () {
             var t = [];
@@ -2916,15 +2932,18 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
             if (cellarFile) {
                 var m_1 = /* @__PURE__ */ new Map();
                 rows0.forEach(function (r) {
-                    var k = r.id || keyOf(r.producer, r.name, r.vintage), q = r.qty > 0 ? r.qty : 1;
+                    var k = r.id || keyOf(r.producer, r.name, r.vintage), q = r.qty > 0 ? r.qty : 1, u = [];
+                    for (var i = 0; i < q; i++)
+                        u.push({ loc: r.loc, bin: r.bin });
                     if (m_1.has(k)) {
                         var o = m_1.get(k);
                         o.qty += q;
+                        o.units = o.units.concat(u);
                         o.rating = o.rating || r.rating;
                         o.comment = o.comment || r.comment;
                     }
                     else
-                        m_1.set(k, __spreadProps(__spreadValues({}, r), { qty: q }));
+                        m_1.set(k, __spreadProps(__spreadValues({}, r), { qty: q, units: u }));
                 });
                 rows = __spreadArray([], __read(m_1.values()), false);
             }
@@ -2953,9 +2972,21 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
             };
             var add = [], update = [], remove = [], seen = /* @__PURE__ */ new Set();
             var same = 0, unmatched = 0, slots = freeSlots.slice();
-            var newRow = function (r, quantity, base) {
-                var slot = slots.length ? slots.shift() : null;
-                return { name: r.name, producer: r.producer || null, vintage: r.vintage || null, country: r.country || null, region: r.region || null, wine_type: TYPE_MAP[norm(r.type)] || (r.type || base && base.wine_type || null), category: "Vin", bottle_size: base && base.bottle_size || "75 cl", quantity: slot ? 1 : quantity, vivino_url: r.url || base && base.vivino_url || null, location_kind: slot ? "cave" : "placard", slot: slot || null, place_label: slot ? null : "\xC0 ranger", purchase_price: r.price || null, drinking_window: r.drink || null, notes: r.rating || r.comment ? noteOf(r) : null, external_id: r.id ? "vivino-" + r.id : null };
+            var usedBins = /* @__PURE__ */ new Set();
+            var newRow = function (r, quantity, base, unit) {
+                var z = zoneOf(unit && unit.loc);
+                var slot = null;
+                if (!z || z.kind === "cave") {
+                    var bs = binSlot(unit && unit.bin), i = bs ? slots.indexOf(bs) : -1;
+                    if (i >= 0 && !usedBins.has(bs)) {
+                        slot = bs;
+                        slots.splice(i, 1);
+                        usedBins.add(bs);
+                    }
+                    else if (slots.length)
+                        slot = slots.shift();
+                }
+                return { name: r.name, producer: r.producer || null, vintage: r.vintage || null, country: r.country || null, region: r.region || null, wine_type: TYPE_MAP[norm(r.type)] || (r.type || base && base.wine_type || null), category: "Vin", bottle_size: base && base.bottle_size || "75 cl", quantity: slot ? 1 : quantity, vivino_url: r.url || base && base.vivino_url || null, location_kind: slot ? "cave" : z && z.kind !== "cave" ? z.kind : "placard", slot: slot || null, place_label: slot ? null : z && z.kind !== "cave" ? z.label : "\xC0 ranger", purchase_price: r.price || null, drinking_window: r.drink || null, notes: r.rating || r.comment ? noteOf(r) : null, external_id: r.id ? "vivino-" + r.id : null };
             };
             var _loop_5 = function (r) {
                 var g = findRows(r);
@@ -2965,7 +2996,7 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                         return "continue";
                     }
                     for (var i = 0; i < r.qty; i++) {
-                        var n = newRow(r, 1);
+                        var n = newRow(r, 1, null, r.units && r.units[i]);
                         add.push(n);
                     }
                     return "continue";
@@ -2980,6 +3011,21 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                         if (nn !== (b.notes || ""))
                             patch.notes = nn;
                     }
+                    if (g.length === 1 && r.units && r.units.length === 1 && !SLOT_ROW(b)) {
+                        var z = zoneOf(r.units[0].loc);
+                        if (z && z.kind === "cave") {
+                            var bs = binSlot(r.units[0].bin), i = bs ? slots.indexOf(bs) : -1, sl = i >= 0 ? (slots.splice(i, 1), bs) : slots.shift();
+                            if (sl && qtyOf(b) === 1) {
+                                patch.location_kind = "cave";
+                                patch.slot = sl;
+                                patch.place_label = null;
+                            }
+                        }
+                        else if (z && (b.location_kind !== z.kind || (b.place_label || "") !== z.label)) {
+                            patch.location_kind = z.kind;
+                            patch.place_label = z.label;
+                        }
+                    }
                     if (r.url && !b.vivino_url)
                         patch.vivino_url = r.url;
                     if (r.drink && !b.drinking_window)
@@ -2992,8 +3038,9 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                 if (cellarFile && r.qty > 0) {
                     var T = g.reduce(function (t, b) { return t + qtyOf(b); }, 0), diff = r.qty - T;
                     if (diff > 0) {
+                        var us = (r.units || []).slice(-diff);
                         for (var i = 0; i < diff; i++)
-                            add.push(newRow(r, 1, g[0]));
+                            add.push(newRow(r, 1, g[0], us[i]));
                         changed = true;
                     }
                     else if (diff < 0) {
@@ -3036,7 +3083,7 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
             var h = csvRows[0] ? Object.keys(csvRows[0]).join("|") : "";
             return /quantity|qty|bottles|quantite/.test(h) || /cellar|cave/i.test(fileName) || !/rating|review|comment|note/.test(h);
         };
-        return { parseCSV: parseCSV, vivinoId: vivinoId, keyOf: keyOf, readRows: readRows, planSync: planSync, isCellarFile: isCellarFile };
+        return { parseCSV: parseCSV, vivinoId: vivinoId, keyOf: keyOf, readRows: readRows, zoneOf: zoneOf, planSync: planSync, isCellarFile: isCellarFile };
     })();
     __m.recipes = (function () {
         var _d = __m.util, $ = _d.$, $$ = _d.$$, esc = _d.esc, toast = _d.toast, openModal = _d.openModal, closeModal = _d.closeModal, formDialog = _d.formDialog, compressImage = _d.compressImage, ymd = _d.ymd, DAYS = _d.DAYS;
@@ -5521,6 +5568,82 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
             var m = Math.round((Date.now() - new Date(iso)) / 6e4);
             return m < 1 ? "\xE0 l\u2019instant" : m < 60 ? "il y a ".concat(m, " min") : m < 1440 ? "il y a ".concat(Math.round(m / 60), " h") : new Date(iso).toLocaleDateString("fr-FR");
         };
+        var RADIOS = [
+            ["franceinfo", "France Info", "https://icecast.radiofrance.fr/franceinfo-midfi.mp3", "https://www.franceinfo.fr/en-direct/radio.html", "news"],
+            ["franceinter", "France Inter", "https://icecast.radiofrance.fr/franceinter-midfi.mp3", "https://www.radiofrance.fr/franceinter", "news"],
+            ["mradio", "M Radio", "https://mfm.ice.infomaniak.ch/mfm-128.mp3", "https://www.mradio.fr/", "music"],
+            ["rfm", "RFM", "https://rfm.lmn.fm/rfm.mp3", "https://rfm.fr/", "music"],
+            ["nostalgie", "Nostalgie", "https://streaming.nrjaudio.fm/oug7girb92oc", "https://www.nostalgie.fr/", "music"],
+            ["cheriefm", "Ch\xE9rie FM", "https://streaming.nrjaudio.fm/ou2n2epw5hs7", "https://www.cheriefm.fr/", "music"]
+        ];
+        var radioEl = null, radioKey = "", radioState = "";
+        var radioUi = function () {
+            $$(".radiobtn").forEach(function (b) {
+                var on = b.dataset.radio === radioKey;
+                if (on && radioState !== "err")
+                    b.classList.add("on");
+                else
+                    b.classList.remove("on");
+                var st = on ? radioState : "";
+                b.querySelector("small").textContent = st === "load" ? "Connexion\u2026" : st === "play" ? "En direct \xB7 toucher pour arr\xEAter" : st === "err" ? "Flux inaccessible" : "\xC9couter";
+            });
+            var r = RADIOS.filter(function (x) { return x[0] === radioKey; })[0];
+            $$(".radioLink").forEach(function (l) {
+                l.hidden = !(r && radioState === "err");
+                if (r)
+                    l.href = r[3];
+            });
+        };
+        var radioCard = function (group) {
+            if (group === void 0) { group = "news"; }
+            return "<div class=\"card glass radiocard\"><h3 class=\"script\">Radio en direct</h3>\n  <div class=\"radiolist\">".concat(RADIOS.filter(function (r) { return r[4] === group; }).map(function (r) { return "<button class=\"btn radiobtn ".concat(radioKey === r[0] && radioState !== "err" && radioState ? "on" : "", "\" data-radio=\"").concat(r[0], "\"><b>").concat(esc(r[1]), "</b><small>").concat(radioKey === r[0] && radioState === "play" ? "En direct \xB7 toucher pour arr\xEAter" : "\xC9couter", "</small></button>"); }).join(""), "</div>\n  <p class=\"muted small\"><a class=\"radioLink\" href=\"#\" target=\"_blank\" rel=\"noopener\" hidden>Ouvrir le direct sur le site de la radio</a></p></div>");
+        };
+        function bindRadio(root) {
+            $$("[data-radio]", root).forEach(function (b) { return b.onclick = function () {
+                var r = RADIOS.filter(function (x) { return x[0] === b.dataset.radio; })[0];
+                if (!r)
+                    return;
+                if (!radioEl) {
+                    radioEl = new Audio();
+                    radioEl.preload = "none";
+                    radioEl.onplaying = function () {
+                        radioState = "play";
+                        radioUi();
+                    };
+                    radioEl.onerror = function () {
+                        radioState = "err";
+                        radioUi();
+                    };
+                    radioEl.onwaiting = function () {
+                        if (radioState === "play") {
+                            radioState = "load";
+                            radioUi();
+                        }
+                    };
+                }
+                if (radioKey === r[0] && (radioState === "play" || radioState === "load")) {
+                    radioEl.pause();
+                    radioKey = "";
+                    radioState = "";
+                    radioUi();
+                    return;
+                }
+                stopReading();
+                radioKey = r[0];
+                radioState = "load";
+                radioEl.src = r[2];
+                radioUi();
+                var pr = radioEl.play();
+                if (pr && pr.catch)
+                    pr.catch(function () {
+                        if (radioState === "load") {
+                            radioState = "err";
+                            radioUi();
+                        }
+                    });
+            }; });
+            radioUi();
+        }
         var news = {
             html: function () {
                 var c = read();
@@ -5532,7 +5655,7 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                 var brief = "<div class=\"card glass newsbrief\"><h3 class=\"script\">En bref</h3><ol>".concat(first.slice(0, 5).map(function (i) { return "<li>".concat(esc(i.title), "</li>"); }).join(""), "</ol></div>");
                 var secs = Object.keys(c.sections);
                 var items = c.sections[sec] || [];
-                return head + warn + brief + "<div class=\"chips\">".concat(secs.map(function (k) { return "<button data-sec=\"".concat(esc(k), "\" class=\"").concat(k === sec ? "on" : "", "\">").concat(esc(k), "</button>"); }).join(""), "</div>\n      <div class=\"newslist\">").concat(items.map(function (i, k) { return "<article class=\"card glass news ".concat(sec === "\xC0 la une" && k === reading ? "reading" : "", "\" data-k=\"").concat(k, "\">").concat(i.img ? "<img src=\"".concat(esc(i.img), "\" alt=\"\" loading=\"lazy\" onerror=\"this.remove()\">") : "", "<div class=\"grow\"><b>").concat(esc(i.title), "</b>").concat(i.text ? "<p>".concat(esc(i.text), "</p>") : "", "<small class=\"muted\">").concat(esc(i.src)).concat(i.date ? " \xB7 " + esc(new Date(String(i.date).replace(" ", "T")).toLocaleString("fr-FR", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })) : "", " \u00B7 <a href=\"").concat(esc(i.link), "\" target=\"_blank\" rel=\"noopener\">Lire \u2197</a></small></div><button class=\"iconbtn\" data-say=\"").concat(k, "\" aria-label=\"Lire cet article\"></button></article>"); }).join(""), "</div>\n      <p class=\"muted small\">R\u00E9sum\u00E9 automatique des titres et chap\u00F4s publi\u00E9s par France Info et Le Monde. Mis \u00E0 jour \u00E0 chaque \u00E9dition (6 h et 18 h) \u00E0 l\u2019ouverture de la page.</p>");
+                return head + radioCard() + warn + brief + "<div class=\"chips\">".concat(secs.map(function (k) { return "<button data-sec=\"".concat(esc(k), "\" class=\"").concat(k === sec ? "on" : "", "\">").concat(esc(k), "</button>"); }).join(""), "</div>\n      <div class=\"newslist\">").concat(items.map(function (i, k) { return "<article class=\"card glass news ".concat(sec === "\xC0 la une" && k === reading ? "reading" : "", "\" data-k=\"").concat(k, "\">").concat(i.img ? "<img src=\"".concat(esc(i.img), "\" alt=\"\" loading=\"lazy\" onerror=\"this.remove()\">") : "", "<div class=\"grow\"><b>").concat(esc(i.title), "</b>").concat(i.text ? "<p>".concat(esc(i.text), "</p>") : "", "<small class=\"muted\">").concat(esc(i.src)).concat(i.date ? " \xB7 " + esc(new Date(String(i.date).replace(" ", "T")).toLocaleString("fr-FR", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })) : "", " \u00B7 <a href=\"").concat(esc(i.link), "\" target=\"_blank\" rel=\"noopener\">Lire \u2197</a></small></div><button class=\"iconbtn\" data-say=\"").concat(k, "\" aria-label=\"Lire cet article\"></button></article>"); }).join(""), "</div>\n      <p class=\"muted small\">R\u00E9sum\u00E9 automatique des titres et chap\u00F4s publi\u00E9s par France Info et Le Monde. Mis \u00E0 jour \u00E0 chaque \u00E9dition (6 h et 18 h) \u00E0 l\u2019ouverture de la page.</p>");
             },
             bind: function (root, rerender) {
                 var redraw = function () {
@@ -5540,6 +5663,7 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                     rerender();
                     window.scrollTo(0, y);
                 };
+                bindRadio(root);
                 var c = read();
                 if (!loading && (!c || c.slot !== slotOf(/* @__PURE__ */ new Date()))) {
                     var p = refresh(false);
@@ -5601,7 +5725,278 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                 }; });
             }
         };
-        return { slotOf: slotOf, read: read, refresh: refresh, stopReading: stopReading, news: news };
+        return { slotOf: slotOf, read: read, refresh: refresh, stopReading: stopReading, radioCard: radioCard, bindRadio: bindRadio, news: news };
+    })();
+    __m.mp3 = (function () {
+        var _d = __m.util, $ = _d.$, $$ = _d.$$, esc = _d.esc, toast = _d.toast;
+        var db = __m.db;
+        var tracks = function () { return (db.store.t.family_tracks || []).slice().sort(function (a, b) { return (a.album || "").localeCompare(b.album || "", "fr") || (a.title || "").localeCompare(b.title || "", "fr", { numeric: true }); }); };
+        var MARK = "/object/public/photos/";
+        var pathOf = function (u) {
+            var i = String(u || "").indexOf(MARK);
+            return i < 0 ? null : decodeURIComponent(String(u).slice(i + MARK.length));
+        };
+        var AUDIO = /\.(mp3|m4a|aac|wav|ogg|flac)$/i;
+        var audio = null, queue = [], idx = -1, shuffle = false, repeat = false, playing = false, album = "", uiRefresh = null;
+        var fmt = function (s) {
+            s = Math.max(0, Math.floor(s || 0));
+            return Math.floor(s / 60) + ":" + ("0" + s % 60).slice(-2);
+        };
+        var cleanName = function (n) { return n.replace(/\.[a-z0-9]+$/i, "").replace(/^\d+[\s._-]+(?=\D)/, "").replace(/[_]+/g, " ").trim() || n; };
+        function ensure() {
+            if (audio)
+                return audio;
+            audio = new Audio();
+            audio.preload = "none";
+            audio.onended = function () { return next(true); };
+            audio.onerror = function () {
+                playing = false;
+                toast("Lecture impossible pour ce morceau", "err");
+                if (uiRefresh)
+                    uiRefresh();
+            };
+            audio.onplay = function () {
+                playing = true;
+                if (uiRefresh)
+                    uiRefresh();
+            };
+            audio.onpause = function () {
+                playing = false;
+                if (uiRefresh)
+                    uiRefresh();
+            };
+            audio.ontimeupdate = function () {
+                if (uiRefresh)
+                    uiRefresh(true);
+            };
+            return audio;
+        }
+        function playAt(i) {
+            if (!queue.length)
+                return;
+            idx = (i + queue.length) % queue.length;
+            var a = ensure();
+            a.src = queue[idx].url;
+            var p = a.play();
+            if (p && p.then)
+                p.then(null, function () {
+                    playing = false;
+                    if (uiRefresh)
+                        uiRefresh();
+                });
+            if (uiRefresh)
+                uiRefresh();
+        }
+        function next(auto) {
+            if (!queue.length)
+                return;
+            if (auto && repeat === "one") {
+                playAt(idx);
+                return;
+            }
+            if (shuffle) {
+                var j = Math.floor(Math.random() * queue.length);
+                if (queue.length > 1 && j === idx)
+                    j = (j + 1) % queue.length;
+                playAt(j);
+                return;
+            }
+            if (auto && idx === queue.length - 1 && !repeat) {
+                playing = false;
+                if (uiRefresh)
+                    uiRefresh();
+                return;
+            }
+            playAt(idx + 1);
+        }
+        var current = function () { return idx >= 0 ? queue[idx] : null; };
+        function mp3Card() {
+            var all = tracks(), names = Object.keys(all.reduce(function (m, x) {
+                m[x.album || "Ma musique"] = 1;
+                return m;
+            }, {})).sort();
+            var list = all.filter(function (x) { return !album || (x.album || "Ma musique") === album; }), cur = current();
+            return "<div class=\"card glass\" id=\"mp3box\"><h3 class=\"script\">Ma musique (MP3)</h3>\n    <div class=\"mp3now\"><div class=\"grow\"><b id=\"mp3title\">".concat(cur ? esc(cur.title) : "Aucun morceau en lecture", "</b><br><small class=\"muted\" id=\"mp3sub\">").concat(cur ? esc(cur.album || "") : "Touchez un morceau pour le lire", "</small></div></div>\n    <div class=\"mp3ctl\"><button class=\"btn\" id=\"mp3prev\" aria-label=\"Pr\u00E9c\u00E9dent\">\u2039\u2039</button><button class=\"btn primary\" id=\"mp3play\">").concat(playing ? "Pause" : "Lecture", "</button><button class=\"btn\" id=\"mp3next\" aria-label=\"Suivant\">\u203A\u203A</button><button class=\"btn ").concat(shuffle ? "primary" : "", "\" id=\"mp3shuf\">Al\u00E9atoire</button><button class=\"btn ").concat(repeat ? "primary" : "", "\" id=\"mp3rep\">").concat(repeat === "one" ? "R\xE9p\xE9ter 1" : "R\xE9p\xE9ter", "</button></div>\n    <div class=\"mp3bar\"><span id=\"mp3cur\">0:00</span><input type=\"range\" id=\"mp3seek\" min=\"0\" max=\"1000\" value=\"0\" aria-label=\"Position\"><span id=\"mp3dur\">0:00</span></div>\n    ").concat(names.length > 1 ? "<div class=\"chips\"><button class=\"chip ".concat(!album ? "on" : "", "\" data-malb=\"\">Tout (").concat(all.length, ")</button>").concat(names.map(function (n) { return "<button class=\"chip ".concat(album === n ? "on" : "", "\" data-malb=\"").concat(esc(n), "\">").concat(esc(n), "</button>"); }).join(""), "</div>") : "", "\n    <div class=\"mp3list\">").concat(list.map(function (x) { return "<div class=\"mp3row ".concat(cur && cur.id === x.id ? "on" : "", "\" data-tid=\"").concat(x.id, "\"><button class=\"mp3t\" data-tp=\"").concat(x.id, "\">").concat(esc(x.title), "</button><small class=\"muted\">").concat(esc(x.album || ""), "</small><button class=\"iconbtn\" data-td=\"").concat(x.id, "\" aria-label=\"Supprimer\">\u00D7</button></div>"); }).join("") || '<div class="empty">Aucun morceau. Ajoutez vos MP3 ci-dessous.</div>', "</div>\n    <div class=\"bar\"><input id=\"malbum\" list=\"malbums\" placeholder=\"Album (ex. Rock)\" value=\"").concat(esc(album), "\" aria-label=\"Album d\u2019envoi\"><datalist id=\"malbums\">").concat(names.map(function (n) { return "<option value=\"".concat(esc(n), "\">"); }).join(""), "</datalist>\n      <label class=\"btn primary filebtn\">\uFF0B Ajouter des MP3<input type=\"file\" id=\"mp3files\" accept=\"audio/*,.mp3,.m4a,.aac\" multiple hidden></label></div>\n    <p class=\"muted small\">Envoyez vos fichiers depuis un ordinateur ou un t\u00E9l\u00E9phone r\u00E9cent ; l\u2019iPad les lit ensuite en continu. Stockage gratuit : 1 Go (environ 200 morceaux). Gardez l\u2019\u00E9cran de l\u2019iPad allum\u00E9 pendant l\u2019\u00E9coute.</p></div>");
+        }
+        function bindMp3(root, rerender) {
+            var _this = this;
+            var box = $("#mp3box", root);
+            if (!box)
+                return;
+            var all = function () { return tracks().filter(function (x) { return !album || (x.album || "Ma musique") === album; }); };
+            var sync = function (light) {
+                if (!document.getElementById("mp3box")) {
+                    uiRefresh = null;
+                    return;
+                }
+                var a = audio, seek2 = $("#mp3seek"), seeking = seek2 && seek2.__drag;
+                if (a && seek2 && !seeking) {
+                    var d = a.duration || 0;
+                    seek2.value = d ? Math.round(a.currentTime / d * 1e3) : 0;
+                    $("#mp3cur").textContent = fmt(a.currentTime);
+                    $("#mp3dur").textContent = d && isFinite(d) ? fmt(d) : "0:00";
+                }
+                if (light)
+                    return;
+                var c = current();
+                $("#mp3title").textContent = c ? c.title : "Aucun morceau en lecture";
+                $("#mp3sub").textContent = c ? c.album || "" : "Touchez un morceau pour le lire";
+                $("#mp3play").textContent = playing ? "Pause" : "Lecture";
+                $$(".mp3row", box).forEach(function (r) {
+                    r.className = "mp3row" + (c && r.dataset.tid === c.id ? " on" : "");
+                });
+            };
+            uiRefresh = sync;
+            sync();
+            $$("[data-malb]", box).forEach(function (b) { return b.onclick = function () {
+                album = b.dataset.malb;
+                rerender();
+            }; });
+            $$("[data-tp]", box).forEach(function (b) { return b.onclick = function () {
+                queue = all();
+                var i = queue.findIndex(function (x) { return x.id === b.dataset.tp; });
+                playAt(i < 0 ? 0 : i);
+            }; });
+            $$("[data-td]", box).forEach(function (b) { return b.onclick = function () { return __awaiter(_this, void 0, void 0, function () {
+                var x, e_42;
+                return __generator(this, function (_d) {
+                    switch (_d.label) {
+                        case 0:
+                            x = tracks().find(function (t) { return t.id === b.dataset.td; });
+                            if (!x || !window.confirm("Supprimer \xAB " + x.title + " \xBB pour toute la famille ?"))
+                                return [2 /*return*/];
+                            _d.label = 1;
+                        case 1:
+                            _d.trys.push([1, 3, , 4]);
+                            if (current() && current().id === x.id && audio) {
+                                audio.pause();
+                                idx = -1;
+                                queue = [];
+                            }
+                            return [4 /*yield*/, db.del("family_tracks", x.id)];
+                        case 2:
+                            _d.sent();
+                            if (x.path)
+                                db.store.sb.storage.from("photos").remove([x.path]).then(null, function () {
+                                });
+                            rerender();
+                            return [3 /*break*/, 4];
+                        case 3:
+                            e_42 = _d.sent();
+                            toast(e_42.message || String(e_42), "err");
+                            return [3 /*break*/, 4];
+                        case 4: return [2 /*return*/];
+                    }
+                });
+            }); }; });
+            $("#mp3play", box).onclick = function () {
+                if (!audio || idx < 0) {
+                    queue = all();
+                    if (queue.length)
+                        playAt(0);
+                    return;
+                }
+                if (audio.paused) {
+                    var p = audio.play();
+                    if (p && p.then)
+                        p.then(null, function () {
+                        });
+                }
+                else
+                    audio.pause();
+            };
+            $("#mp3next", box).onclick = function () {
+                if (!queue.length)
+                    queue = all();
+                if (queue.length) {
+                    if (idx < 0)
+                        playAt(0);
+                    else
+                        next(false);
+                }
+            };
+            $("#mp3prev", box).onclick = function () {
+                if (audio && audio.currentTime > 3) {
+                    audio.currentTime = 0;
+                    return;
+                }
+                if (!queue.length)
+                    queue = all();
+                if (queue.length)
+                    playAt(idx < 0 ? 0 : idx - 1);
+            };
+            $("#mp3shuf", box).onclick = function (e) {
+                shuffle = !shuffle;
+                e.target.className = "btn" + (shuffle ? " primary" : "");
+            };
+            $("#mp3rep", box).onclick = function (e) {
+                repeat = !repeat ? true : repeat === true ? "one" : false;
+                e.target.className = "btn" + (repeat ? " primary" : "");
+                e.target.textContent = repeat === "one" ? "R\xE9p\xE9ter 1" : "R\xE9p\xE9ter";
+            };
+            var seek = $("#mp3seek", box);
+            var go = function () {
+                seek.__drag = false;
+                if (audio && audio.duration && isFinite(audio.duration))
+                    audio.currentTime = seek.value / 1e3 * audio.duration;
+            };
+            seek.oninput = function () {
+                seek.__drag = true;
+                if (audio && audio.duration)
+                    $("#mp3cur").textContent = fmt(seek.value / 1e3 * audio.duration);
+            };
+            seek.onchange = go;
+            seek.ontouchend = function () { return setTimeout(go, 0); };
+            seek.onmouseup = go;
+            $("#mp3files", box).onchange = function (e) { return __awaiter(_this, void 0, void 0, function () {
+                var files, alb, ok, fail, i, ext, mime, path, error, url, err_19;
+                return __generator(this, function (_d) {
+                    switch (_d.label) {
+                        case 0:
+                            files = [].slice.call(e.target.files || []).filter(function (f) { return /^audio\//.test(f.type) || AUDIO.test(f.name); });
+                            e.target.value = "";
+                            if (!files.length)
+                                return [2 /*return*/];
+                            alb = ($("#malbum", box).value || "").trim() || "Ma musique";
+                            ok = 0, fail = "";
+                            i = 0;
+                            _d.label = 1;
+                        case 1:
+                            if (!(i < files.length)) return [3 /*break*/, 7];
+                            toast("Envoi ".concat(i + 1, "/").concat(files.length, " : ").concat(cleanName(files[i].name), "\u2026"));
+                            _d.label = 2;
+                        case 2:
+                            _d.trys.push([2, 5, , 6]);
+                            ext = (files[i].name.match(/\.([a-z0-9]+)$/i) || [0, "mp3"])[1].toLowerCase(), mime = files[i].type || ({ m4a: "audio/mp4", aac: "audio/aac", wav: "audio/wav", ogg: "audio/ogg", flac: "audio/flac" }[ext] || "audio/mpeg");
+                            path = "music/".concat(crypto.randomUUID(), ".").concat(ext);
+                            return [4 /*yield*/, db.store.sb.storage.from("photos").upload(path, files[i], { contentType: mime, cacheControl: "31536000" })];
+                        case 3:
+                            error = (_d.sent()).error;
+                            if (error)
+                                throw error;
+                            url = db.store.sb.storage.from("photos").getPublicUrl(path).data.publicUrl;
+                            return [4 /*yield*/, db.add("family_tracks", { title: cleanName(files[i].name), album: alb, url: url, path: pathOf(url) || path, size: files[i].size, uploader: db.store.displayName || "" })];
+                        case 4:
+                            _d.sent();
+                            ok++;
+                            return [3 /*break*/, 6];
+                        case 5:
+                            err_19 = _d.sent();
+                            fail = err_19.message || String(err_19);
+                            return [3 /*break*/, 6];
+                        case 6:
+                            i++;
+                            return [3 /*break*/, 1];
+                        case 7:
+                            toast(ok ? "".concat(ok, " morceau").concat(ok > 1 ? "x" : "", " ajout\u00E9").concat(ok > 1 ? "s" : "").concat(fail ? " (erreur : " + fail + ")" : "") : "Envoi impossible : " + fail, ok ? void 0 : "err");
+                            album = alb;
+                            rerender();
+                            return [2 /*return*/];
+                    }
+                });
+            }); };
+        }
+        return { mp3Card: mp3Card, bindMp3: bindMp3 };
     })();
     __m.dashboard = (function () {
         var _d = __m.util, $ = _d.$, $$ = _d.$$, esc = _d.esc, toast = _d.toast, ymd = _d.ymd, fmtLong = _d.fmtLong, fmtTime = _d.fmtTime, PEOPLE = _d.PEOPLE;
@@ -5631,7 +6026,7 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
         var fnName = function () { return window.FN_LABELS || "wine-labels"; };
         function getJSON(url) {
             return __awaiter(this, void 0, void 0, function () {
-                var r, e_42, sb, _d, data, error;
+                var r, e_43, sb, _d, data, error;
                 return __generator(this, function (_e) {
                     switch (_e.label) {
                         case 0:
@@ -5647,7 +6042,7 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                         case 3: return [2 /*return*/, _e.sent()];
                         case 4: return [3 /*break*/, 6];
                         case 5:
-                            e_42 = _e.sent();
+                            e_43 = _e.sent();
                             return [3 /*break*/, 6];
                         case 6:
                             sb = db.store.sb;
@@ -5723,7 +6118,7 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
         }
         function loadWeather(force) {
             return __awaiter(this, void 0, void 0, function () {
-                var c, url, j, e_43;
+                var c, url, j, e_44;
                 return __generator(this, function (_d) {
                     switch (_d.label) {
                         case 0:
@@ -5748,8 +6143,8 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                             jset(WX_KEY, wx);
                             return [2 /*return*/, true];
                         case 3:
-                            e_43 = _d.sent();
-                            wxError = e_43.message || "erreur";
+                            e_44 = _d.sent();
+                            wxError = e_44.message || "erreur";
                             return [2 /*return*/, false];
                         case 4:
                             wxLoading = false;
@@ -5790,7 +6185,7 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
         var radarTry = 0, radar = null, radarErr = "", radarIdx = -1, radarTimer = null;
         function loadRadar() {
             return __awaiter(this, void 0, void 0, function () {
-                var j, past, e_44;
+                var j, past, e_45;
                 return __generator(this, function (_d) {
                     switch (_d.label) {
                         case 0:
@@ -5809,8 +6204,8 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                             radarIdx = radar.frames.length - 1;
                             return [2 /*return*/, true];
                         case 3:
-                            e_44 = _d.sent();
-                            radarErr = e_44.message || "erreur";
+                            e_45 = _d.sent();
+                            radarErr = e_45.message || "erreur";
                             radar = radar || null;
                             return [2 /*return*/, false];
                         case 4: return [2 /*return*/];
@@ -5842,7 +6237,7 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
         }
         function setFrame(i, first) {
             return __awaiter(this, void 0, void 0, function () {
-                var f, ims, urls, bases, res_1, e_45, t2;
+                var f, ims, urls, bases, res_1, e_46, t2;
                 return __generator(this, function (_d) {
                     switch (_d.label) {
                         case 0:
@@ -5868,7 +6263,7 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                             });
                             return [3 /*break*/, 4];
                         case 3:
-                            e_45 = _d.sent();
+                            e_46 = _d.sent();
                             return [3 /*break*/, 4];
                         case 4: return [3 /*break*/, 6];
                         case 5:
@@ -5911,7 +6306,7 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                 var form = $("#cityForm", root);
                 if (form) {
                     form.onsubmit = function (e) { return __awaiter(_this, void 0, void 0, function () {
-                        var q, err_19;
+                        var q, err_20;
                         return __generator(this, function (_d) {
                             switch (_d.label) {
                                 case 0:
@@ -5927,8 +6322,8 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                                     cityResults = _d.sent();
                                     return [3 /*break*/, 4];
                                 case 3:
-                                    err_19 = _d.sent();
-                                    toast("Recherche impossible : " + err_19.message, "err");
+                                    err_20 = _d.sent();
+                                    toast("Recherche impossible : " + err_20.message, "err");
                                     return [2 /*return*/];
                                 case 4:
                                     redraw();
@@ -6070,7 +6465,7 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                 });
                 if (last)
                     body += "</div>";
-                return "<div class=\"card glass accent\"><b>Photos de la famille.</b> Chacun envoie ses photos depuis son t\u00E9l\u00E9phone : le s\u00E9lecteur propose la phototh\u00E8que (Apple Photos, Google Photos, appareil photo\u2026). Elles sont ensuite visibles sur tous vos appareils.</div>\n      <div class=\"bar\"><input id=\"palbum\" list=\"palbums\" placeholder=\"Album (ex. Vacances)\" value=\"".concat(esc(album || ""), "\" aria-label=\"Album d\u2019envoi\"><datalist id=\"palbums\">").concat(names.map(function (n) { return "<option value=\"".concat(esc(n), "\">"); }).join(""), "</datalist>\n        <label class=\"btn primary filebtn\">\uFF0B Ajouter des photos<input type=\"file\" id=\"pfiles\" accept=\"image/*\" multiple hidden></label></div>\n      <div class=\"chips\"><button class=\"chip ").concat(!album ? "on" : "", "\" data-alb=\"\">Toutes (").concat(t().length, ")</button>").concat(names.map(function (n) { return "<button class=\"chip ".concat(album === n ? "on" : "", "\" data-alb=\"").concat(esc(n), "\">").concat(esc(n), " (").concat(al[n], ")</button>"); }).join(""), "</div>\n      ").concat(body || '<div class="empty">Aucune photo pour le moment.</div>', "\n      ").concat(list.length > limit ? "<p style=\"text-align:center\"><button class=\"btn\" id=\"pmore\">Afficher plus (".concat(list.length - limit, ")</button></p>") : "", "\n      <p class=\"muted small\">Stockage gratuit Supabase (1 Go) : les photos sont r\u00E9duites \u00E0 1600 px pour en garder beaucoup.</p>");
+                return "<div class=\"card glass accent\"><b>Photos de la famille.</b> Chacun envoie ses photos depuis son t\u00E9l\u00E9phone : le s\u00E9lecteur propose la phototh\u00E8que (Apple Photos, Google Photos, appareil photo\u2026). Elles sont ensuite visibles sur tous vos appareils.</div>\n      <div class=\"bar\"><input id=\"palbum\" list=\"palbums\" placeholder=\"Album (ex. Vacances)\" value=\"".concat(esc(album || ""), "\" aria-label=\"Album d\u2019envoi\"><datalist id=\"palbums\">").concat(names.map(function (n) { return "<option value=\"".concat(esc(n), "\">"); }).join(""), "</datalist>\n        <button class=\"btn\" id=\"pshow\">Diaporama</button><label class=\"btn primary filebtn\">\uFF0B Ajouter des photos<input type=\"file\" id=\"pfiles\" accept=\"image/*\" multiple hidden></label></div>\n      <div class=\"chips\"><button class=\"chip ").concat(!album ? "on" : "", "\" data-alb=\"\">Toutes (").concat(t().length, ")</button>").concat(names.map(function (n) { return "<button class=\"chip ".concat(album === n ? "on" : "", "\" data-alb=\"").concat(esc(n), "\">").concat(esc(n), " (").concat(al[n], ")</button>"); }).join(""), "</div>\n      ").concat(body || '<div class="empty">Aucune photo pour le moment.</div>', "\n      ").concat(list.length > limit ? "<p style=\"text-align:center\"><button class=\"btn\" id=\"pmore\">Afficher plus (".concat(list.length - limit, ")</button></p>") : "", "\n      <p class=\"muted small\">Stockage gratuit Supabase (1 Go) : les photos sont r\u00E9duites \u00E0 1600 px pour en garder beaucoup.</p>");
             },
             bind: function (root, rerender) {
                 var _this = this;
@@ -6086,8 +6481,9 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                         rerender();
                     };
                 $$("[data-ph]", root).forEach(function (b) { return b.onclick = function () { return viewer(b.dataset.ph, rerender); }; });
+                $("#pshow", root).onclick = function () { return slideDialog(); };
                 $("#pfiles", root).onchange = function (e) { return __awaiter(_this, void 0, void 0, function () {
-                    var files, alb, ok, fail, i, big, thumb, url, turl, err_20;
+                    var files, alb, ok, fail, i, big, thumb, url, turl, err_21;
                     return __generator(this, function (_d) {
                         switch (_d.label) {
                             case 0:
@@ -6123,8 +6519,8 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                                 ok++;
                                 return [3 /*break*/, 9];
                             case 8:
-                                err_20 = _d.sent();
-                                fail = err_20.message || String(err_20);
+                                err_21 = _d.sent();
+                                fail = err_21.message || String(err_21);
                                 return [3 /*break*/, 9];
                             case 9:
                                 i++;
@@ -6163,7 +6559,7 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                             draw();
                         };
                         $("#psave", r).onclick = function () { return __awaiter(_this, void 0, void 0, function () {
-                            var err_21;
+                            var err_22;
                             return __generator(this, function (_d) {
                                 switch (_d.label) {
                                     case 0:
@@ -6174,15 +6570,15 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                                         toast("Enregistr\xE9");
                                         return [3 /*break*/, 3];
                                     case 2:
-                                        err_21 = _d.sent();
-                                        toast(err_21.message, "err");
+                                        err_22 = _d.sent();
+                                        toast(err_22.message, "err");
                                         return [3 /*break*/, 3];
                                     case 3: return [2 /*return*/];
                                 }
                             });
                         }); };
                         $("#pdel", r).onclick = function () { return __awaiter(_this, void 0, void 0, function () {
-                            var paths, err_22;
+                            var paths, err_23;
                             return __generator(this, function (_d) {
                                 switch (_d.label) {
                                     case 0:
@@ -6202,8 +6598,8 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                                         rerender();
                                         return [3 /*break*/, 4];
                                     case 3:
-                                        err_22 = _d.sent();
-                                        toast(err_22.message, "err");
+                                        err_23 = _d.sent();
+                                        toast(err_23.message, "err");
                                         return [3 /*break*/, 4];
                                     case 4: return [2 /*return*/];
                                 }
@@ -6214,12 +6610,144 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
             };
             draw();
         }
+        var SS_KEY = "family-slideshow";
+        var ssGet = function () {
+            try {
+                return JSON.parse(localStorage.getItem(SS_KEY)) || {};
+            }
+            catch (e) {
+                return {};
+            }
+        };
+        function slideDialog() {
+            var o = ssGet(), al = albums(), names = Object.keys(al).sort(), cur = album || o.album || "";
+            var opt = function (v, l, c) { return "<option value=\"".concat(esc(v), "\" ").concat(String(v) === String(c) ? "selected" : "", ">").concat(esc(l), "</option>"); };
+            openModal("<div class=\"detail\"><h2 class=\"script\">Diaporama</h2>\n    <p class=\"muted small\">Pour utiliser l\u2019iPad comme cadre photo : branchez-le, r\u00E9glez \u00AB Verrouillage automatique \u00BB sur \u00AB Jamais \u00BB (R\u00E9glages \u203A \u00C9cran et luminosit\u00E9), puis lancez le diaporama. Pour un plein \u00E9cran sans barre Safari, ajoutez le site \u00E0 l\u2019\u00E9cran d\u2019accueil.</p>\n    <label class=\"field\"><span>Album</span><select id=\"ssAlb\">".concat(opt("", "Toutes les photos (" + t().length + ")", cur)).concat(names.map(function (n) { return opt(n, n + " (" + al[n] + ")", cur); }).join(""), "</select></label>\n    <label class=\"field\"><span>Dur\u00E9e d\u2019affichage</span><select id=\"ssSec\">").concat([5, 10, 20, 30, 60, 300].map(function (n) { return opt(n, n >= 60 ? n / 60 + " min" : n + " s", o.sec || 10); }).join(""), "</select></label>\n    <label class=\"field\"><span>Ordre</span><select id=\"ssOrd\">").concat(opt("rand", "Al\xE9atoire", o.ord || "rand")).concat(opt("date", "Du plus r\xE9cent au plus ancien", o.ord), "</select></label>\n    <label class=\"field\"><span>Affichage</span><select id=\"ssFit\">").concat(opt("contain", "Photo enti\xE8re", o.fit || "contain")).concat(opt("cover", "Remplir l\u2019\xE9cran (rogner)", o.fit), "</select></label>\n    <label class=\"field check\"><input type=\"checkbox\" id=\"ssClock\" ").concat(o.clock === false ? "" : "checked", "> <span>Afficher l\u2019heure et la date</span></label>\n    <label class=\"field check\"><input type=\"checkbox\" id=\"ssCap\" ").concat(o.cap === false ? "" : "checked", "> <span>Afficher les l\u00E9gendes</span></label>\n    <div class=\"formactions\"><button class=\"btn ghost\" data-close>Annuler</button><span class=\"grow\"></span><button class=\"btn primary\" id=\"ssGo\">Lancer</button></div></div>"), {
+                onMount: function (r) {
+                    $("[data-close]", r).onclick = closeModal;
+                    $("#ssGo", r).onclick = function () {
+                        var cfg = { album: $("#ssAlb", r).value, sec: +$("#ssSec", r).value, ord: $("#ssOrd", r).value, fit: $("#ssFit", r).value, clock: $("#ssClock", r).checked, cap: $("#ssCap", r).checked };
+                        try {
+                            localStorage.setItem(SS_KEY, JSON.stringify(cfg));
+                        }
+                        catch (e) {
+                        }
+                        var list = sorted().filter(function (p) { return !cfg.album || (p.album || "Vrac") === cfg.album; });
+                        if (!list.length) {
+                            toast("Aucune photo dans cet album", "err");
+                            return;
+                        }
+                        closeModal();
+                        slideshow(list, cfg);
+                    };
+                }
+            });
+        }
+        function slideshow(list, cfg) {
+            var order = list.slice();
+            if (cfg.ord === "rand")
+                for (var i2 = order.length - 1; i2 > 0; i2--) {
+                    var j = Math.floor(Math.random() * (i2 + 1)), x = order[i2];
+                    order[i2] = order[j];
+                    order[j] = x;
+                }
+            var box = document.createElement("div");
+            box.id = "slideshow";
+            box.innerHTML = '<div class="ssl on"></div><div class="ssl"></div><div class="sscap"></div><div class="ssclock"></div><div class="ssbar"><button id="ssPrev">\u2039</button><button id="ssPlay">Pause</button><button id="ssNext">\u203A</button><button id="ssClose">Fermer</button></div>';
+            document.body.appendChild(box);
+            var layers = [box.children[0], box.children[1]], cap = box.querySelector(".sscap"), clock = box.querySelector(".ssclock"), bar = box.querySelector(".ssbar");
+            var i = -1, top = 0, timer = null, hide = null, playing = true;
+            box.setAttribute("data-fit", cfg.fit || "contain");
+            var show = function (n) {
+                i = (n + order.length) % order.length;
+                var p = order[i], img = new Image();
+                img.onload = function () {
+                    top = 1 - top;
+                    layers[top].style.backgroundImage = "url('" + p.url.replace(/'/g, "%27") + "')";
+                    layers[top].className = "ssl on";
+                    layers[1 - top].className = "ssl";
+                };
+                img.onerror = function () {
+                    if (order.length > 1)
+                        show(i + 1);
+                };
+                img.src = p.url;
+                cap.textContent = cfg.cap === false ? "" : p.caption || "";
+                var nx = order[(i + 1) % order.length];
+                if (nx) {
+                    var pre = new Image();
+                    pre.src = nx.url;
+                }
+            };
+            var tick = function () {
+                if (!document.getElementById("slideshow")) {
+                    clearInterval(timer);
+                    clearInterval(clk);
+                    return;
+                }
+                if (playing)
+                    show(i + 1);
+            };
+            var clockUpdate = function () {
+                if (cfg.clock === false) {
+                    clock.style.display = "none";
+                    return;
+                }
+                var d = /* @__PURE__ */ new Date();
+                clock.innerHTML = "<b>" + ("0" + d.getHours()).slice(-2) + ":" + ("0" + d.getMinutes()).slice(-2) + "</b><span>" + d.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" }) + "</span>";
+            };
+            var clk = setInterval(clockUpdate, 15e3);
+            clockUpdate();
+            var close = function () {
+                clearInterval(timer);
+                clearInterval(clk);
+                clearTimeout(hide);
+                if (box.parentNode)
+                    box.parentNode.removeChild(box);
+            };
+            var reset = function () {
+                clearInterval(timer);
+                timer = setInterval(tick, Math.max(3, cfg.sec || 10) * 1e3);
+            };
+            var wake = function () {
+                bar.className = "ssbar vis";
+                clearTimeout(hide);
+                hide = setTimeout(function () {
+                    bar.className = "ssbar";
+                }, 4e3);
+            };
+            box.onclick = function (e) {
+                if (e.target.tagName !== "BUTTON")
+                    wake();
+            };
+            $("#ssNext", box).onclick = function () {
+                show(i + 1);
+                reset();
+                wake();
+            };
+            $("#ssPrev", box).onclick = function () {
+                show(i - 1);
+                reset();
+                wake();
+            };
+            $("#ssPlay", box).onclick = function () {
+                playing = !playing;
+                $("#ssPlay", box).textContent = playing ? "Pause" : "Lecture";
+                wake();
+            };
+            $("#ssClose", box).onclick = close;
+            show(0);
+            reset();
+            wake();
+        }
         return { photos: photos };
     })();
     __m.misc = (function () {
         var _d = __m.util, $ = _d.$, $$ = _d.$$, esc = _d.esc, toast = _d.toast, formDialog = _d.formDialog, openModal = _d.openModal, closeModal = _d.closeModal, ymd = _d.ymd, parseYmd = _d.parseYmd, addDays = _d.addDays, fmtLong = _d.fmtLong, fmtTime = _d.fmtTime, toLocalInput = _d.toLocalInput, PEOPLE = _d.PEOPLE;
         var db = __m.db;
         var ics = __m.ics;
+        var _e = __m.news, radioCard = _e.radioCard, bindRadio = _e.bindRadio;
+        var _f = __m.mp3, mp3Card = _f.mp3Card, bindMp3 = _f.bindMp3;
         var t = function (k) { return db.store.t[k]; };
         var pIndex = function (o) { return Math.max(0, PEOPLE.indexOf(o)); };
         var ART = {
@@ -6354,7 +6882,7 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                     });
                 }); };
                 $("#icsFile", r).onchange = function (e) { return __awaiter(_this, void 0, void 0, function () {
-                    var file, text, from, to, rows, err_23;
+                    var file, text, from, to, rows, err_24;
                     return __generator(this, function (_d) {
                         switch (_d.label) {
                             case 0:
@@ -6384,8 +6912,8 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                                 rerender();
                                 return [3 /*break*/, 5];
                             case 4:
-                                err_23 = _d.sent();
-                                toast("Import impossible : " + err_23.message, "err");
+                                err_24 = _d.sent();
+                                toast("Import impossible : " + err_24.message, "err");
                                 return [3 /*break*/, 5];
                             case 5: return [2 /*return*/];
                         }
@@ -6465,12 +6993,14 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
         }
         function spotifyInfo(raw) {
             var t2 = String(raw || "").trim();
-            var d = t2.match(/deezer\.com\/(?:[a-z]{2}(?:-[a-z]{2})?\/)?(playlist|album|track|artist|show|episode)\/(\d+)/);
-            if (d)
-                return { service: "Deezer", type: d[1], id: d[2], web: "https://www.deezer.com/".concat(d[1], "/").concat(d[2]), embed: "https://widget.deezer.com/widget/auto/".concat(d[1], "/").concat(d[2]) };
-            d = t2.match(/https?:\/\/(?:link\.deezer\.com|deezer\.page\.link)\/\S+/);
-            if (d)
-                return { service: "Deezer", type: "short", web: d[0] };
+            if (/youtube\.com|youtu\.be/i.test(t2)) {
+                var v = t2.match(/(?:youtube\.com\/(?:watch\?(?:[^#\s]*&)?v=|embed\/|shorts\/|live\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/), l = t2.match(/[?&]list=([A-Za-z0-9_-]{10,})/);
+                if (v)
+                    return { service: "YouTube", type: "video", id: v[1], web: "https://www.youtube.com/watch?v=" + v[1] + (l ? "&list=" + l[1] : ""), embed: "https://www.youtube.com/embed/" + v[1] + (l ? "?list=" + l[1] : "") };
+                if (l)
+                    return { service: "YouTube", type: "playlist", id: l[1], web: "https://www.youtube.com/playlist?list=" + l[1], embed: "https://www.youtube.com/embed/videoseries?list=" + l[1] };
+                return null;
+            }
             var m = t2.match(/open\.spotify\.com\/(?:intl-[a-z]+\/)?(?:embed\/)?(playlist|album|track|artist|show|episode)\/([A-Za-z0-9]{10,30})/) || t2.match(/spotify:(playlist|album|track|artist|show|episode):([A-Za-z0-9]{10,30})/);
             if (m)
                 return { service: "Spotify", type: m[1], id: m[2], web: "https://open.spotify.com/".concat(m[1], "/").concat(m[2]), embed: "https://open.spotify.com/embed/".concat(m[1], "/").concat(m[2]) };
@@ -6481,64 +7011,51 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
         }
         var music = {
             html: function () {
-                return "<div class=\"bar\"><span class=\"muted\">Collez un lien Spotify ou Deezer. \u00AB \u00C9couter \u00BB lance la playlist ici ; le bouton \u00E0 droite l\u2019ouvre dans l\u2019appli ou le site du service.</span><span class=\"grow\"></span><button class=\"btn primary\" id=\"addPl\">\uFF0B Playlist</button></div>\n      <div class=\"plgrid\">".concat(t("playlists").map(function (p) {
+                return radioCard("music") + mp3Card() + "<div class=\"bar\"><span class=\"muted\">Collez un lien Spotify ou YouTube. \u00AB \u00C9couter \u00BB lance la playlist ici ; le bouton \u00E0 droite l\u2019ouvre dans l\u2019appli ou le site.</span><span class=\"grow\"></span><button class=\"btn primary\" id=\"addPl\">\uFF0B Playlist</button></div>\n      <div class=\"plgrid\">".concat(t("playlists").map(function (p) {
                     var i = spotifyInfo(p.spotify_url);
                     return "<div class=\"card glass pl\"><span class=\"ico\"></span><div class=\"grow\"><b>".concat(esc(p.title), "</b><br><small>").concat(esc(p.owner || "Famille")).concat(i ? "" : " \xB7 lien non reconnu", "</small></div>").concat(i && i.embed ? "<button class=\"btn primary small\" data-play=\"".concat(p.id, "\">\u00C9couter</button>") : "", "<a class=\"btn small\" href=\"").concat(esc(i ? i.web : p.spotify_url), "\">").concat(i ? i.service : "Lien", " \u2197</a><button class=\"iconbtn\" data-edit=\"").concat(p.id, "\" aria-label=\"Modifier\">\u22EF</button></div>");
-                }).join("") || '<div class="empty">Ajoutez le lien de vos playlists Spotify ou Deezer.</div>', "</div>");
+                }).join("") || '<div class="empty">Ajoutez le lien de vos playlists Spotify ou YouTube.</div>', "</div>");
             },
-            bind: function (root) {
+            bind: function (root, rerender) {
                 var _this = this;
+                bindRadio(root);
+                bindMp3(root, rerender);
                 var edit = function (p) {
                     if (p === void 0) { p = {}; }
                     return formDialog({
                         title: p.id ? "Modifier la playlist" : "Nouvelle playlist",
                         values: __spreadValues({ owner: "Famille" }, p),
-                        fields: [{ name: "title", label: "Nom", required: true, full: true }, { name: "spotify_url", label: "Lien Spotify ou Deezer", required: true, full: true, placeholder: "https://open.spotify.com/playlist/\u2026 ou https://www.deezer.com/fr/playlist/\u2026", hint: "Spotify : \u22EF \u203A Partager \u203A Copier le lien. Deezer : Partager \u203A Copier le lien." }, { name: "owner", label: "\xC0 qui", type: "select", options: PEOPLE }],
+                        fields: [{ name: "title", label: "Nom", required: true, full: true }, { name: "spotify_url", label: "Lien Spotify ou YouTube", required: true, full: true, placeholder: "https://open.spotify.com/playlist/\u2026 ou https://www.youtube.com/watch?v=\u2026", hint: "Spotify : \u22EF \u203A Partager \u203A Copier le lien. YouTube : Partager \u203A Copier le lien (vid\xE9o ou playlist)." }, { name: "owner", label: "\xC0 qui", type: "select", options: PEOPLE }],
                         danger: p.id ? { label: "Supprimer", confirm: "Supprimer cette playlist ?", run: function () { return db.del("playlists", p.id); } } : null,
                         onSubmit: function (v) { return __awaiter(_this, void 0, void 0, function () {
-                            var i, r, j, e_46, save, e_47, row;
+                            var i, save, e_47, row;
                             return __generator(this, function (_d) {
                                 switch (_d.label) {
                                     case 0:
                                         i = spotifyInfo(v.spotify_url);
                                         if (!i)
-                                            throw new Error("Lien non reconnu : collez un lien de playlist Spotify ou Deezer.");
+                                            throw new Error("Lien non reconnu : collez un lien Spotify ou YouTube (vid\xE9o ou playlist).");
                                         v.spotify_url = i.web;
-                                        if (!(i.type === "short")) return [3 /*break*/, 4];
+                                        save = function (row) { return p.id ? db.patch("playlists", p.id, row) : db.add("playlists", row); };
                                         _d.label = 1;
                                     case 1:
-                                        _d.trys.push([1, 3, , 4]);
-                                        return [4 /*yield*/, db.store.sb.functions.invoke(window.FN_LABELS || "wine-labels", { body: { resolve: v.spotify_url } })];
-                                    case 2:
-                                        r = _d.sent();
-                                        j = r.data && spotifyInfo(r.data.url);
-                                        if (j && j.type !== "short")
-                                            v.spotify_url = j.web;
-                                        return [3 /*break*/, 4];
-                                    case 3:
-                                        e_46 = _d.sent();
-                                        return [3 /*break*/, 4];
-                                    case 4:
-                                        save = function (row) { return p.id ? db.patch("playlists", p.id, row) : db.add("playlists", row); };
-                                        _d.label = 5;
-                                    case 5:
-                                        _d.trys.push([5, 7, , 11]);
+                                        _d.trys.push([1, 3, , 7]);
                                         return [4 /*yield*/, save(v)];
-                                    case 6:
+                                    case 2:
                                         _d.sent();
-                                        return [3 /*break*/, 11];
-                                    case 7:
+                                        return [3 /*break*/, 7];
+                                    case 3:
                                         e_47 = _d.sent();
-                                        if (!/owner/i.test(e_47.message || "")) return [3 /*break*/, 9];
+                                        if (!/owner/i.test(e_47.message || "")) return [3 /*break*/, 5];
                                         row = __spreadValues({}, v);
                                         delete row.owner;
                                         return [4 /*yield*/, save(row)];
-                                    case 8:
+                                    case 4:
                                         _d.sent();
-                                        return [3 /*break*/, 10];
-                                    case 9: throw e_47;
-                                    case 10: return [3 /*break*/, 11];
-                                    case 11: return [2 /*return*/];
+                                        return [3 /*break*/, 6];
+                                    case 5: throw e_47;
+                                    case 6: return [3 /*break*/, 7];
+                                    case 7: return [2 /*return*/];
                                 }
                             });
                         }); }
@@ -6546,7 +7063,7 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                 };
                 var play = function (p) {
                     var i = spotifyInfo(p.spotify_url);
-                    openModal("<h2 class=\"script\">".concat(esc(p.title), "</h2><iframe class=\"spframe\" src=\"").concat(esc(i.embed), "\" width=\"100%\" height=\"").concat(i.service === "Deezer" ? 300 : 380, "\" frameborder=\"0\" allow=\"autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture\" loading=\"lazy\"></iframe><div class=\"formactions\"><a class=\"btn\" href=\"").concat(esc(i.web), "\">Ouvrir dans ").concat(i.service, " \u2197</a><span class=\"grow\"></span><button class=\"btn primary\" data-close>Fermer</button></div>"), { wide: true, onMount: function (r) {
+                    openModal("<h2 class=\"script\">".concat(esc(p.title), "</h2><iframe class=\"spframe\" src=\"").concat(esc(i.embed), "\" width=\"100%\" height=\"").concat(i.service === "YouTube" ? 320 : 380, "\" frameborder=\"0\" allow=\"autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture\" loading=\"lazy\"></iframe><div class=\"formactions\"><a class=\"btn\" href=\"").concat(esc(i.web), "\">Ouvrir dans ").concat(i.service, " \u2197</a><span class=\"grow\"></span><button class=\"btn primary\" data-close>Fermer</button></div>"), { wide: true, onMount: function (r) {
                             $("[data-close]", r).onclick = closeModal;
                         } });
                 };
@@ -6625,7 +7142,7 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
             agenda: { icon: "", label: "Agenda", title: "L\u2019agenda familial", mod: agenda, tables: ["family_events"] },
             news: { icon: "", label: "Actualit\xE9s", title: "L\u2019actualit\xE9 du jour", mod: news, tables: [] },
             homebook: { icon: "", label: "Maison", title: "La maison", mod: homebook, tables: ["family_notes"] },
-            music: { icon: "", label: "Playlists", title: "Nos playlists", mod: music, tables: ["playlists"] }
+            music: { icon: "", label: "Playlists", title: "Nos playlists", mod: music, tables: ["playlists", "family_tracks"] }
         };
         var page = "home";
         try {
