@@ -339,19 +339,26 @@ main.sheet { position: relative; background: var(--sheet); border-radius: 38px 3
 .ssbar{position:absolute;right:16px;top:16px;opacity:0;-webkit-transition:opacity .3s;transition:opacity .3s;pointer-events:none}.ssbar.vis{opacity:1;pointer-events:auto}
 .ssbar button{margin-left:8px;padding:10px 16px;border:0;border-radius:12px;background:rgba(255,255,255,.25);color:#fff;font-size:1rem}
 /* Tableau de bord en paysage (iPad à l'horizontale) : tout visible sans défilement */
+/* saint, citation, pression */
+.dailybox .saint b{font-size:1.05rem}
+.dquote{margin:8px 0 0;font-style:italic;line-height:1.4}.dquote footer{font-style:normal;font-size:.85rem;opacity:.7;margin-top:4px}.dquote footer:before{content:"— "}
+.prnow{margin:2px 0 4px}.prsvg{display:block;max-width:420px}.prb{fill:#8fb7e3}.prb.now{fill:#2f6f9f}.prt{font-size:9px;fill:#7a867f}
+.dashside .card{margin-bottom:12px}
 @media (orientation:landscape) and (min-width:900px){
   #appShell{max-width:none}
   .pagehead{margin-bottom:0}.pagehead h1{font-size:1.5rem;margin:0}
   .dash{display:-webkit-flex;display:flex;-webkit-align-items:flex-start;align-items:flex-start;margin:0 -7px}
   .dash .card{margin:0 7px 0;padding:10px 14px;box-sizing:border-box}
   .dashwx,.dashradar{-webkit-flex:1 1 33%;flex:1 1 33%;min-width:0}
-  .dash .grid2{display:block;-webkit-flex:1 1 33%;flex:1 1 33%;min-width:0}
-  .dash .grid2>div{margin:0 0 8px}.dash .grid2 .card{margin:0;max-height:200px;overflow-y:auto;-webkit-overflow-scrolling:touch}
+  .dashside{-webkit-flex:1 1 33%;flex:1 1 33%;min-width:0;padding:0 7px;box-sizing:border-box}.dashside .card{margin:0 0 8px}
+  .dash .grid2{display:block;min-width:0}
+  .dash .grid2>div{margin:0 0 8px}.dash .grid2 .card{margin:0;max-height:118px;overflow-y:auto;-webkit-overflow-scrolling:touch}
   .dash .wxhead{-webkit-flex-wrap:wrap;flex-wrap:wrap}.dash .wxhead .btn{margin-top:4px}
   .dash .wxnow{margin:2px 0 6px}.dash .wxtemp{font-size:2rem}
   .dash .wxhours{-webkit-flex-wrap:wrap;flex-wrap:wrap;overflow:visible;padding:0}
   .dash .wxh{width:19%;margin:0 1% 6px 0;padding:5px 0}
   .dash .radar{max-width:none}
+  .dash .prsvg{max-height:58px}.dash .dquote{margin-top:4px;font-size:.92rem}.dash .dailybox,.dash .dashside .card{padding:8px 14px}.dash .prnow{margin:0 0 2px;font-size:.92rem}
 }
 /* lecteur MP3 */
 .mp3now{display:-webkit-flex;display:flex;margin:6px 0}

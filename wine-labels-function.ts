@@ -71,19 +71,44 @@ function priceFromHtml(html: string): number | null {
   if (t) { const n = parseFloat((t[1] || t[2]).replace(',', '.')); if (plausible(n)) return Math.round(n * 100) / 100; }
   return null;
 }
-async function priceFor(b: { key: string; url?: string; query?: string }) {
+// ---- Wine-Searcher (2e source) : page de recherche « find/<mots>/<millésime> », prix moyen affiché (devise convertie en euros)
+const FX: Record<string, number> = { EUR: 1, USD: 0.93, GBP: 1.17, CHF: 1.06 };
+function wsPrice(html: string): number | null {
+  let cur = 'EUR'; const c = html.match(/"priceCurrency"\s*:\s*"([A-Z]{3})"/) || html.match(/Avg Price[^<]{0,80}?(USD|EUR|GBP|CHF|\$|€|£)/i);
+  if (c) cur = ({ '$': 'USD', '€': 'EUR', '£': 'GBP' } as Record<string, string>)[c[1]] || c[1].toUpperCase();
+  const pats: RegExp[] = [/Avg Price[^0-9]{0,200}?(\d[\d.,]*)/i, /Prix moyen[^0-9]{0,200}?(\d[\d.,]*)/i, /"lowPrice"\s*:\s*"?(\d+(?:\.\d+)?)/, /"price"\s*:\s*"?(\d+(?:\.\d+)?)"?/];
+  for (const re of pats) { const m = html.match(re); if (m) { const n = parseFloat(m[1].replace(/,(?=\d{3}\b)/g, '').replace(',', '.')); if (plausible(n)) return Math.round(n * (FX[cur] || 1) * 100) / 100; } }
+  return null;
+}
+async function wineSearcherPrice(query: string, vintage?: string) {
+  const words = query.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').trim().split(/\s+/).filter(Boolean).slice(0, 8).join('+');
+  if (!words) return null;
+  const page = 'https://www.wine-searcher.com/find/' + words + (vintage ? '/' + vintage : '') + '/france';
+  let price: number | null = null;
+  try { const r = await get(page + '?Xcurrencycode=EUR'); if (r.ok) price = wsPrice(await r.text()); } catch (_) { /* ignore */ }
+  if (price === null) { try { const j = await get('https://r.jina.ai/' + page, 'text/plain'); if (j.ok) price = wsPrice(await j.text()); } catch (_) { /* ignore */ } }
+  return price === null ? null : { price, page };
+}
+async function priceFor(b: { key: string; url?: string; query?: string; name?: string; vintage?: string }) {
+  let vivErr = '', vivPage = '';
   try {
     let pageUrl = b.url || '';
-    if (pageUrl) { const u = new URL(pageUrl); if (!okHost(u)) return { key: b.key, ok: false, error: 'lien non Vivino' }; }
-    else if (b.query) pageUrl = (await findPage(b.query)) || '';
-    if (!pageUrl) return { key: b.key, ok: false, error: 'bouteille introuvable sur Vivino' };
-    let price: number | null = null, why = '';
-    const r = await get(pageUrl);
-    if (r.ok) price = priceFromHtml(await r.text()); else why = 'Vivino a répondu ' + r.status;
-    if (price === null) { try { const j = await get('https://r.jina.ai/' + pageUrl, 'text/plain'); if (j.ok) price = priceFromHtml(await j.text()); } catch (_) { /* ignore */ } }
-    if (price === null) return { key: b.key, ok: false, error: why || 'aucun prix affiché sur Vivino', page: pageUrl };
-    return { key: b.key, ok: true, price, source: 'Vivino', page: pageUrl };
-  } catch (e) { return { key: b.key, ok: false, error: String((e as Error).message || e).slice(0, 120) }; }
+    if (pageUrl) { const u = new URL(pageUrl); if (!okHost(u)) pageUrl = ''; }
+    if (!pageUrl && b.query) pageUrl = (await findPage(b.query)) || '';
+    if (pageUrl) {
+      vivPage = pageUrl; let price: number | null = null;
+      const r = await get(pageUrl);
+      if (r.ok) price = priceFromHtml(await r.text()); else vivErr = 'Vivino a répondu ' + r.status;
+      if (price === null) { try { const j = await get('https://r.jina.ai/' + pageUrl, 'text/plain'); if (j.ok) price = priceFromHtml(await j.text()); } catch (_) { /* ignore */ } }
+      if (price !== null) return { key: b.key, ok: true, price, source: 'Vivino', page: pageUrl };
+      vivErr = vivErr || 'aucun prix affiché sur Vivino';
+    } else vivErr = 'introuvable sur Vivino';
+  } catch (e) { vivErr = String((e as Error).message || e).slice(0, 80); }
+  try {
+    const w = b.query ? await wineSearcherPrice(b.query.replace(/\b(19|20)\d{2}\b/g, '').trim(), b.vintage) : null;
+    if (w) return { key: b.key, ok: true, price: w.price, source: 'Wine-Searcher', page: w.page };
+  } catch (_) { /* ignore */ }
+  return { key: b.key, ok: false, error: vivErr + ' ; Wine-Searcher : aucun prix', page: vivPage || undefined };
 }
 
 // Relais pour le tableau de bord (météo, radar) : utile aux vieux appareils (iPad iOS 9) qui n'acceptent plus les certificats d'Open-Meteo / RainViewer.

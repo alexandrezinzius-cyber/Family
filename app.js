@@ -4182,14 +4182,14 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
             openModal("<div class=\"detail\"><h2 class=\"script\">Prix des bouteilles</h2>\n    <p class=\"muted\">Prix moyen d\u2019<b>une</b> bouteille, en euros. Le lien \u00AB Prix \u00BB ouvre une recherche (Google Shopping) et \u00AB Vivino \u00BB la page Vivino : notez ce que vous trouvez, puis enregistrez. La valeur totale de la cave se recalcule aussit\u00F4t.</p>\n    <label class=\"field check\"><input type=\"checkbox\" id=\"onlyMissing\"> <span>Afficher seulement les bouteilles sans prix</span></label>\n    <div class=\"pricelist\">".concat(rows.map(function (_d) {
                 var b = _d.b;
                 var _a;
-                return "<div class=\"prow2\" data-has=\"".concat(b.estimated_value ? 1 : 0, "\"><span class=\"grow\"><b>").concat(esc(b.name), "</b> ").concat(b.vintage ? "<span class=\"muted\">".concat(b.vintage, "</span>") : "", "<br><small>").concat(esc([b.producer, b.price_updated_at && "prix du " + new Date(b.price_updated_at).toLocaleDateString("fr-FR")].filter(Boolean).join(" \xB7 ")), "</small></span>\n      <a class=\"iconbtn\" href=\"").concat(esc(searchUrl(b)), "\" target=\"_blank\" rel=\"noopener\" title=\"Chercher le prix\">Prix</a>").concat(b.vivino_url ? "<a class=\"iconbtn\" href=\"".concat(esc(b.vivino_url), "\" target=\"_blank\" rel=\"noopener\" title=\"Page Vivino\">Vivino</a>") : "", "\n      <input type=\"number\" min=\"0\" step=\"0.5\" inputmode=\"decimal\" data-k=\"").concat(esc(priceKey(b)), "\" value=\"").concat((_a = b.estimated_value) != null ? _a : "", "\" placeholder=\"\u2014\" aria-label=\"Prix\"><span>\u20AC</span></div>");
-            }).join(""), "</div>\n    <p id=\"pstat\" class=\"muted small\"></p><div class=\"formactions wrap\"><button class=\"btn ghost\" data-close>Annuler</button><button class=\"btn\" id=\"vivPrices\">Chercher les prix sur Vivino</button><span class=\"grow\"></span><button class=\"btn primary\" id=\"savePrices\">Enregistrer les prix</button></div></div>"), {
+                return "<div class=\"prow2\" data-has=\"".concat(b.estimated_value ? 1 : 0, "\"><span class=\"grow\"><b>").concat(esc(b.name), "</b> ").concat(b.vintage ? "<span class=\"muted\">".concat(b.vintage, "</span>") : "", "<br><small>").concat(esc([b.producer, b.price_updated_at && "prix du " + new Date(b.price_updated_at).toLocaleDateString("fr-FR")].filter(Boolean).join(" \xB7 ")), "</small></span>\n      <a class=\"iconbtn\" href=\"").concat(esc(searchUrl(b)), "\" target=\"_blank\" rel=\"noopener\" title=\"Chercher le prix\">Prix</a>").concat(b.vivino_url ? "<a class=\"iconbtn\" href=\"".concat(esc(b.vivino_url), "\" target=\"_blank\" rel=\"noopener\" title=\"Page Vivino\">Vivino</a>") : "", "<a class=\"iconbtn\" href=\"").concat(esc("https://www.wine-searcher.com/find/" + encodeURIComponent([b.producer, b.name].filter(Boolean).join(" ").toLowerCase()).replace(/%20/g, "+") + (b.vintage ? "/" + b.vintage : "")), "\" target=\"_blank\" rel=\"noopener\" title=\"Wine-Searcher\">WS</a>\n      <input type=\"number\" min=\"0\" step=\"0.5\" inputmode=\"decimal\" data-k=\"").concat(esc(priceKey(b)), "\" value=\"").concat((_a = b.estimated_value) != null ? _a : "", "\" placeholder=\"\u2014\" aria-label=\"Prix\"><span>\u20AC</span></div>");
+            }).join(""), "</div>\n    <p id=\"pstat\" class=\"muted small\"></p><div class=\"formactions wrap\"><button class=\"btn ghost\" data-close>Annuler</button><button class=\"btn\" id=\"vivPrices\">Chercher les prix (Vivino, Wine-Searcher)</button><span class=\"grow\"></span><button class=\"btn primary\" id=\"savePrices\">Enregistrer les prix</button></div></div>"), {
                 wide: true,
                 onMount: function (root) {
                     $("[data-close]", root).onclick = closeModal;
                     $("#onlyMissing", root).onchange = function (e) { return $$(".prow2", root).forEach(function (r) { return r.classList.toggle("hidden", e.target.checked && r.dataset.has === "1"); }); };
                     $("#vivPrices", root).onclick = function (e) { return __awaiter(_this, void 0, void 0, function () {
-                        var btn, st, only, todo, ok, fail, last, i, part, _d, data, error, _loop_9, _e, _f, r, x_6;
+                        var btn, st, only, todo, ok, fail, last, src, i, part, _d, data, error, _loop_9, _e, _f, r, x_6;
                         var e_30, _g;
                         return __generator(this, function (_h) {
                             switch (_h.label) {
@@ -4201,18 +4201,19 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                                     });
                                     btn.disabled = true;
                                     ok = 0, fail = 0, last = "";
+                                    src = {};
                                     i = 0;
                                     _h.label = 1;
                                 case 1:
                                     if (!(i < todo.length)) return [3 /*break*/, 6];
                                     part = todo.slice(i, i + 3);
-                                    st.textContent = "Recherche sur Vivino\u2026 ".concat(Math.min(i + 3, todo.length), " / ").concat(todo.length);
+                                    st.textContent = "Recherche sur Vivino puis Wine-Searcher\u2026 ".concat(Math.min(i + 3, todo.length), " / ").concat(todo.length);
                                     _h.label = 2;
                                 case 2:
                                     _h.trys.push([2, 4, , 5]);
                                     return [4 /*yield*/, Promise.race([db.store.sb.functions.invoke(window.FN_LABELS || "wine-labels", { body: { prices: part.map(function (_d) {
                                                         var _e = __read(_d, 2), k = _e[0], g = _e[1];
-                                                        return ({ key: k, url: g.b.vivino_url || void 0, query: [g.b.producer, g.b.name, g.b.vintage].filter(Boolean).join(" ") });
+                                                        return ({ key: k, vintage: g.b.vintage ? String(g.b.vintage) : void 0, url: g.b.vivino_url || void 0, query: [g.b.producer, g.b.name, g.b.vintage].filter(Boolean).join(" ") });
                                                     }) } }), new Promise(function (_, rej) { return setTimeout(function () { return rej(new Error("pas de r\xE9ponse en 40 s")); }, 4e4); })])];
                                 case 3:
                                     _d = _h.sent(), data = _d.data, error = _d.error;
@@ -4226,6 +4227,7 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                                                 inp.classList.add("found");
                                             }
                                             ok++;
+                                            src[r.source || "Vivino"] = (src[r.source || "Vivino"] || 0) + 1;
                                         }
                                         else {
                                             fail++;
@@ -4256,7 +4258,7 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                                     return [3 /*break*/, 1];
                                 case 6:
                                     btn.disabled = false;
-                                    st.textContent = "".concat(ok, " prix trouv\u00E9").concat(ok > 1 ? "s" : "", " sur Vivino").concat(fail ? ", ".concat(fail, " introuvable").concat(fail > 1 ? "s" : "").concat(last ? " (" + last.slice(0, 90) + ")" : "") : "", ". V\u00E9rifiez puis cliquez sur \u00AB Enregistrer les prix \u00BB.");
+                                    st.textContent = "".concat(ok, " prix trouv\u00E9").concat(ok > 1 ? "s" : "", " (").concat(Object.keys(src).map(function (k) { return src[k] + " " + k; }).join(", ") || "aucun", ")").concat(fail ? ", ".concat(fail, " introuvable").concat(fail > 1 ? "s" : "").concat(last ? " (" + last.slice(0, 90) + ")" : "") : "", ". V\u00E9rifiez puis cliquez sur \u00AB Enregistrer les prix \u00BB.");
                                     return [2 /*return*/];
                             }
                         });
@@ -5576,7 +5578,7 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
             ["nostalgie", "Nostalgie", "https://streaming.nrjaudio.fm/oug7girb92oc", "https://www.nostalgie.fr/", "music"],
             ["cheriefm", "Ch\xE9rie FM", "https://streaming.nrjaudio.fm/ou2n2epw5hs7", "https://www.cheriefm.fr/", "music"]
         ];
-        var radioEl = null, radioKey = "", radioState = "";
+        var radioEl = null, radioKey = "", radioState = "", radioHttp = false, radioErr = 0;
         var radioUi = function () {
             $$(".radiobtn").forEach(function (b) {
                 var on = b.dataset.radio === radioKey;
@@ -5585,7 +5587,7 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                 else
                     b.classList.remove("on");
                 var st = on ? radioState : "";
-                b.querySelector("small").textContent = st === "load" ? "Connexion\u2026" : st === "play" ? "En direct \xB7 toucher pour arr\xEAter" : st === "err" ? "Flux inaccessible" : "\xC9couter";
+                b.querySelector("small").textContent = st === "load" ? "Connexion\u2026" : st === "play" ? "En direct \xB7 toucher pour arr\xEAter" : st === "err" ? "Flux inaccessible (code " + radioErr + ")" : "\xC9couter";
             });
             var r = RADIOS.filter(function (x) { return x[0] === radioKey; })[0];
             $$(".radioLink").forEach(function (l) {
@@ -5611,6 +5613,18 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                         radioUi();
                     };
                     radioEl.onerror = function () {
+                        var u = radioEl.getAttribute("src") || "";
+                        if (/^https:/.test(u) && !radioHttp) {
+                            radioHttp = true;
+                            radioEl.src = "http:" + u.slice(6);
+                            radioEl.load();
+                            var q = radioEl.play();
+                            if (q && q.catch)
+                                q.catch(function () {
+                                });
+                            return;
+                        }
+                        radioErr = radioEl.error ? radioEl.error.code : 0;
                         radioState = "err";
                         radioUi();
                     };
@@ -5631,6 +5645,7 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                 stopReading();
                 radioKey = r[0];
                 radioState = "load";
+                radioHttp = false;
                 radioEl.src = r[2];
                 radioUi();
                 var pr = radioEl.play();
@@ -5998,11 +6013,87 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
         }
         return { mp3Card: mp3Card, bindMp3: bindMp3 };
     })();
+    __m.daily = (function () {
+        var SAINTS = [
+            "Marie, M\xE8re de Dieu|Basile|Genevi\xE8ve|Odilon|\xC9douard|M\xE9laine|Raymond|Lucien|Alix|Guillaume|Paulin|Tatiana|Yvette|Nina|R\xE9mi|Marcel|Roseline|Prisca|Marius|S\xE9bastien|Agn\xE8s|Vincent|Barnard|Fran\xE7ois de Sales|Paul|Timoth\xE9e|Ang\xE8le|Thomas d\u2019Aquin|Gildas|Martine|Marcelle",
+            "Ella|Th\xE9ophane|Blaise|V\xE9ronique|Agathe|Gaston|Eug\xE9nie|Jacqueline|Apolline|Arnaud|Notre-Dame de Lourdes|F\xE9lix|B\xE9atrice|Valentin|Claude|Julienne|Alexis|Bernadette|Gabin|Aim\xE9e|Pierre-Damien|Isabelle|Lazare|Modeste|Rom\xE9o|Nestor|Honorine|Romain|Auguste",
+            "Aubin|Charles le Bon|Gu\xE9nol\xE9|Casimir|Olive|Colette|F\xE9licit\xE9|Jean de Dieu|Fran\xE7oise|Vivien|Rosine|Justine|Rodrigue|Mathilde|Louise|B\xE9n\xE9dicte|Patrick|Cyrille|Joseph|Herbert|Cl\xE9mence|L\xE9a|Victorien|Karine|Humbert|Larissa|Habib|Gontran|Gladys|Am\xE9d\xE9e|Benjamin",
+            "Hugues|Sandrine|Richard|Isidore|Ir\xE8ne|Marcellin|Jean-Baptiste de la Salle|Julie|Gautier|Fulbert|Stanislas|Jules|Ida|Maxime|Paterne|Beno\xEEt-Joseph|Anicet|Parfait|Emma|Odette|Anselme|Alexandre|Georges|Fid\xE8le|Marc|Alida|Zita|Val\xE9rie|Catherine de Sienne|Robert",
+            "J\xE9r\xE9mie|Boris|Philippe et Jacques|Sylvain|Judith|Prudence|Gis\xE8le|D\xE9sir\xE9|Pac\xF4me|Solange|Estelle|Achille|Rolande|Matthias|Denise|Honor\xE9|Pascal|\xC9ric|Yves|Bernardin|Constantin|\xC9mile|Didier|Donatien|Sophie|B\xE9renger|Augustin de Cantorb\xE9ry|Germain|Aymar|Ferdinand|Visitation de la Vierge",
+            "Justin|Blandine|K\xE9vin|Clotilde|Igor|Norbert|Gilbert|M\xE9dard|Diane|Landry|Barnab\xE9|Guy|Antoine de Padoue|\xC9lis\xE9e|Germaine|Jean-Fran\xE7ois R\xE9gis|Herv\xE9|L\xE9once|Romuald|Silv\xE8re|Rodolphe|Alban|Audrey|Jean-Baptiste|Prosper|Anthelme|Fernand|Ir\xE9n\xE9e|Pierre et Paul|Martial",
+            "Thierry|Martinien|Thomas|Florent|Antoine-Marie|Mariette|Raoul|Thibaut|Amandine|Ulrich|Beno\xEEt|Olivier|Henri et Jo\xEBl|Camille|Donald|Notre-Dame du Mont-Carmel|Charlotte|Fr\xE9d\xE9ric|Ars\xE8ne|Marina|Victor|Marie-Madeleine|Brigitte|Christine|Jacques|Anne et Joachim|Nathalie|Samson|Marthe|Juliette|Ignace de Loyola",
+            "Alphonse|Julien Eymard|Lydie|Jean-Marie Vianney|Abel|Transfiguration|Ga\xE9tan|Dominique|Amour|Laurent|Claire|Clarisse|Hippolyte|Evrard|Assomption|Armel|Hyacinthe|H\xE9l\xE8ne|Jean Eudes|Bernard|Christophe|Fabrice|Rose de Lima|Barth\xE9lemy|Louis|Natacha|Monique|Augustin|Sabine|Fiacre|Aristide",
+            "Gilles|Ingrid|Gr\xE9goire|Rosalie|Ra\xEFssa|Bertrand|Reine|Nativit\xE9 de Marie|Alain|In\xE8s|Adelphe|Apollinaire|Aim\xE9|Croix glorieuse|Roland|\xC9dith|Renaud|Nad\xE8ge|\xC9milie|Davy|Matthieu|Maurice|Constant|Th\xE8cle|Hermann|C\xF4me et Damien|Vincent de Paul|Venceslas|Michel, Gabriel et Rapha\xEBl|J\xE9r\xF4me",
+            "Th\xE9r\xE8se de l\u2019Enfant-J\xE9sus|L\xE9ger|G\xE9rard|Fran\xE7ois d\u2019Assise|Fleur|Bruno|Serge|P\xE9lagie|Denis|Ghislain|Firmin|Wilfried|G\xE9raud|Juste|Th\xE9r\xE8se d\u2019Avila|Edwige|Baudouin|Luc|Ren\xE9|Adeline|C\xE9line|\xC9lodie|Jean de Capistran|Florentin|Cr\xE9pin|Dimitri|\xC9meline|Simon et Jude|Narcisse|Bienvenue|Quentin",
+            "Toussaint|D\xE9funts|Hubert|Charles|Sylvie|Bertille|Carine|Geoffroy|Th\xE9odore|L\xE9on|Martin|Christian|Brice|Sidoine|Albert|Marguerite|\xC9lisabeth|Aude|Tanguy|Edmond|Pr\xE9sentation de Marie|C\xE9cile|Cl\xE9ment|Flora|Catherine|Delphine|S\xE9verin|Jacques de la Marche|Saturnin|Andr\xE9",
+            "Florence|Viviane|Fran\xE7ois-Xavier|Barbara|G\xE9rald|Nicolas|Ambroise|Immacul\xE9e Conception|Pierre Fourier|Romaric|Daniel|Jeanne de Chantal|Lucie|Odile|Ninon|Alice|Ga\xEBl|Gatien|Urbain|Th\xE9ophile|Pierre Canisius|Fran\xE7oise-Xavi\xE8re|Armand|Ad\xE8le|No\xEBl|\xC9tienne|Jean|Innocents|David|Roger|Sylvestre"
+        ].map(function (m) { return m.split("|"); });
+        function saintOf(d) {
+            var m = SAINTS[d.getMonth()];
+            return m && m[d.getDate() - 1] || "";
+        }
+        var Q = [
+            ["On ne voit bien qu\u2019avec le c\u0153ur. L\u2019essentiel est invisible pour les yeux.", "Antoine de Saint-Exup\xE9ry"],
+            ["Ce n\u2019est pas parce que les choses sont difficiles que nous n\u2019osons pas, c\u2019est parce que nous n\u2019osons pas qu\u2019elles sont difficiles.", "S\xE9n\xE8que"],
+            ["Au milieu de l\u2019hiver, j\u2019apprenais enfin qu\u2019il y avait en moi un \xE9t\xE9 invincible.", "Albert Camus"],
+            ["Le v\xE9ritable voyage de d\xE9couverte ne consiste pas \xE0 chercher de nouveaux paysages, mais \xE0 avoir de nouveaux yeux.", "Marcel Proust"],
+            ["Patience et longueur de temps font plus que force ni que rage.", "Jean de La Fontaine"],
+            ["Un voyage de mille lieues commence toujours par un premier pas.", "Lao Tseu"],
+            ["La vie, c\u2019est comme faire du v\xE9lo : pour garder l\u2019\xE9quilibre, il faut continuer d\u2019avancer.", "Albert Einstein"],
+            ["Cela semble toujours impossible, jusqu\u2019\xE0 ce que ce soit fait.", "Nelson Mandela"],
+            ["Pour ce qui est de l\u2019avenir, il ne s\u2019agit pas de le pr\xE9voir, mais de le rendre possible.", "Antoine de Saint-Exup\xE9ry"],
+            ["Le pessimisme est d\u2019humeur ; l\u2019optimisme est de volont\xE9.", "Alain"],
+            ["J\u2019ai d\xE9cid\xE9 d\u2019\xEAtre heureux parce que c\u2019est bon pour la sant\xE9.", "Voltaire"],
+            ["Il faut cultiver notre jardin.", "Voltaire"],
+            ["Dans la vie, rien n\u2019est \xE0 craindre, tout est \xE0 comprendre.", "Marie Curie"],
+            ["La plus grande chose du monde, c\u2019est de savoir \xEAtre \xE0 soi.", "Montaigne"],
+            ["Le plus manifeste signe de la sagesse, c\u2019est une constante r\xE9jouissance.", "Montaigne"],
+            ["Il faut avoir du chaos en soi pour accoucher d\u2019une \xE9toile dansante.", "Friedrich Nietzsche"],
+            ["Rien de grand ne s\u2019est jamais accompli sans enthousiasme.", "Ralph Waldo Emerson"],
+            ["Soyons reconnaissants aux personnes qui nous donnent du bonheur ; elles sont les charmants jardiniers par qui nos \xE2mes sont fleuries.", "Marcel Proust"],
+            ["Ceux qui vivent, ce sont ceux qui luttent.", "Victor Hugo"],
+            ["Le bonheur, c\u2019est de chercher le bonheur.", "Jules Renard"],
+            ["Tu deviens responsable pour toujours de ce que tu as apprivois\xE9.", "Antoine de Saint-Exup\xE9ry"],
+            ["Quiconque est heureux rendra les autres heureux aussi.", "Anne Frank"],
+            ["Seul, nous pouvons faire si peu ; ensemble, nous pouvons faire beaucoup.", "Helen Keller"],
+            ["Si vous n\u2019aimez pas quelque chose, changez-le. Si vous ne pouvez pas le changer, changez votre attitude.", "Maya Angelou"],
+            ["Aime-toi toi-m\xEAme : c\u2019est le d\xE9but d\u2019une histoire d\u2019amour qui durera toute la vie.", "Oscar Wilde"],
+            ["La seule fa\xE7on de faire du bon travail est d\u2019aimer ce que vous faites.", "Steve Jobs"],
+            ["Quand on veut vraiment quelque chose, tout l\u2019univers conspire \xE0 nous permettre de r\xE9aliser notre r\xEAve.", "Paulo Coelho"],
+            ["Le vent se l\xE8ve !\u2026 Il faut tenter de vivre !", "Paul Val\xE9ry"],
+            ["Le talent, c\u2019est d\u2019avoir envie.", "Jacques Brel"],
+            ["Il faut aller \xE0 l\u2019id\xE9al et comprendre le r\xE9el.", "Jean Jaur\xE8s"],
+            ["Ce qui ne me tue pas me rend plus fort.", "Friedrich Nietzsche"],
+            ["Il faut imaginer Sisyphe heureux.", "Albert Camus"],
+            ["Il y a un autre monde mais il est dans celui-ci.", "Paul \xC9luard"],
+            ["La plus perdue de toutes les journ\xE9es est celle o\xF9 l\u2019on n\u2019a pas ri.", "Chamfort"],
+            ["Le meilleur moment pour planter un arbre \xE9tait il y a vingt ans. Le deuxi\xE8me meilleur moment, c\u2019est maintenant.", "Proverbe chinois"],
+            ["Seul on va plus vite, ensemble on va plus loin.", "Proverbe africain"],
+            ["Le futur appartient \xE0 ceux qui croient \xE0 la beaut\xE9 de leurs r\xEAves.", "Eleanor Roosevelt"],
+            ["Ce ne sont pas les choses qui troublent les hommes, mais les jugements qu\u2019ils portent sur les choses.", "\xC9pict\xE8te"],
+            ["La joie est le passage de l\u2019homme d\u2019une moindre \xE0 une plus grande perfection.", "Spinoza"],
+            ["Je ne perds jamais : soit je gagne, soit j\u2019apprends.", "Nelson Mandela"],
+            ["Que vous pensiez pouvoir le faire ou que vous pensiez ne pas pouvoir, dans les deux cas vous avez raison.", "Henry Ford"],
+            ["Je n\u2019ai pas \xE9chou\xE9. J\u2019ai simplement trouv\xE9 10 000 solutions qui ne fonctionnent pas.", "Thomas Edison"],
+            ["Si vous voulez \xEAtre heureux, pratiquez la compassion.", "Dala\xEF-Lama"],
+            ["Le bonheur d\xE9pend de nous.", "Aristote"],
+            ["Le rire est le soleil qui chasse l\u2019hiver du visage humain.", "Victor Hugo"],
+            ["Je me presse de rire de tout, de peur d\u2019\xEAtre oblig\xE9 d\u2019en pleurer.", "Beaumarchais"],
+            ["L\u2019important n\u2019est pas de gagner mais de participer.", "Pierre de Coubertin"],
+            ["Dans les moments de crise, l\u2019imagination est plus importante que le savoir.", "Albert Einstein"]
+        ];
+        function quoteOf(d) {
+            var n = Math.floor(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) / 864e5);
+            return Q[(n % Q.length + Q.length) % Q.length];
+        }
+        return { saintOf: saintOf, quoteOf: quoteOf };
+    })();
     __m.dashboard = (function () {
         var _d = __m.util, $ = _d.$, $$ = _d.$$, esc = _d.esc, toast = _d.toast, ymd = _d.ymd, fmtLong = _d.fmtLong, fmtTime = _d.fmtTime, PEOPLE = _d.PEOPLE;
         var db = __m.db;
         var nw = __m.news;
         var ics = __m.ics;
+        var _e = __m.daily, saintOf = _e.saintOf, quoteOf = _e.quoteOf;
         var t = function (k) { return db.store.t[k]; };
         var pIndex = function (o) { return Math.max(0, PEOPLE.indexOf(o)); };
         var CITY_KEY = "family-city", WX_KEY = "family-weather";
@@ -6280,6 +6371,64 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                 });
             });
         }
+        var PR_KEY = "family-pressure";
+        var pr = jget(PR_KEY), prTry = 0, prLoading = false;
+        function loadPressure() {
+            return __awaiter(this, void 0, void 0, function () {
+                var c, j, now, tm, out, i, e_47;
+                return __generator(this, function (_d) {
+                    switch (_d.label) {
+                        case 0:
+                            c = city();
+                            if (!c || prLoading)
+                                return [2 /*return*/, false];
+                            if (pr && pr.key === c.lat + "," + c.lon && Date.now() - pr.at < 30 * 60 * 1e3)
+                                return [2 /*return*/, false];
+                            prLoading = true;
+                            prTry = Date.now();
+                            _d.label = 1;
+                        case 1:
+                            _d.trys.push([1, 3, 4, 5]);
+                            return [4 /*yield*/, getJSON("https://api.open-meteo.com/v1/forecast?latitude=" + c.lat + "&longitude=" + c.lon + "&hourly=pressure_msl&current=pressure_msl&past_days=1&forecast_days=1&timezone=auto")];
+                        case 2:
+                            j = _d.sent();
+                            if (!j.hourly || !j.hourly.pressure_msl)
+                                throw new Error("r\xE9ponse incompl\xE8te");
+                            now = j.current && j.current.time ? j.current.time : j.hourly.time[j.hourly.time.length - 1], tm = j.hourly.time, out = [];
+                            for (i = 0; i < tm.length; i++)
+                                if (tm[i] <= now.slice(0, 13) + ":59" && j.hourly.pressure_msl[i] != null)
+                                    out.push({ h: parseInt(tm[i].slice(11, 13), 10), v: j.hourly.pressure_msl[i] });
+                            pr = { key: c.lat + "," + c.lon, at: Date.now(), pts: out.slice(-12) };
+                            jset(PR_KEY, pr);
+                            return [2 /*return*/, true];
+                        case 3:
+                            e_47 = _d.sent();
+                            return [2 /*return*/, false];
+                        case 4:
+                            prLoading = false;
+                            return [7 /*endfinally*/];
+                        case 5: return [2 /*return*/];
+                    }
+                });
+            });
+        }
+        function pressureHTML() {
+            var pts = pr && pr.pts || [];
+            if (pts.length < 3)
+                return "<div class=\"card glass\"><h3 class=\"script\">Pression atmosph\u00E9rique</h3><p class=\"muted\">".concat(prLoading ? "Chargement\u2026" : "Donn\xE9es indisponibles pour le moment.", "</p></div>");
+            var vs = pts.map(function (p) { return p.v; }), lo = Math.min.apply(null, vs), hi = Math.max.apply(null, vs), mid = (lo + hi) / 2, range = Math.max(hi - lo, 4), base = lo - range * 0.4, top = hi;
+            var d = vs[vs.length - 1] - vs[0], trend = d > 1 ? "en hausse" : d < -1 ? "en baisse" : "stable";
+            var W = 240, H = 70, bw = W / pts.length;
+            var bars = pts.map(function (p, i) {
+                var h = Math.max(3, (p.v - base) / (top - base) * (H - 4));
+                return "<rect x=\"".concat((i * bw + 2).toFixed(1), "\" y=\"").concat((H - h).toFixed(1), "\" width=\"").concat((bw - 4).toFixed(1), "\" height=\"").concat(h.toFixed(1), "\" rx=\"2\" class=\"").concat(i === pts.length - 1 ? "prb now" : "prb", "\"><title>").concat(p.h, " h : ").concat(Math.round(p.v), " hPa</title></rect>");
+            }).join("");
+            return "<div class=\"card glass\"><h3 class=\"script\">Pression atmosph\u00E9rique</h3>\n    <p class=\"prnow\"><b>".concat(Math.round(vs[vs.length - 1]), " hPa</b> <span class=\"muted\">\u00B7 ").concat(trend, " (").concat(d > 0 ? "+" : "").concat(d.toFixed(1).replace(".", ","), " hPa sur ").concat(pts.length, " h)</span></p>\n    <svg class=\"prsvg\" viewBox=\"0 0 ").concat(W, " ").concat(H + 14, "\" width=\"100%\" role=\"img\" aria-label=\"Pression sur les 12 derni\u00E8res heures\">").concat(bars, "<text x=\"2\" y=\"").concat(H + 12, "\" class=\"prt\">").concat(pts[0].h, " h</text><text x=\"").concat(W - 2, "\" y=\"").concat(H + 12, "\" text-anchor=\"end\" class=\"prt\">").concat(pts[pts.length - 1].h, " h</text></svg>\n    <small class=\"muted\">Min ").concat(Math.round(lo), " \u00B7 max ").concat(Math.round(hi), " hPa \u00B7 12 derni\u00E8res heures</small></div>");
+        }
+        function dailyHTML() {
+            var now = /* @__PURE__ */ new Date(), q = quoteOf(now), s = saintOf(now);
+            return "<div class=\"card glass dailybox\"><div class=\"saint\"><small class=\"muted\">".concat(esc(now.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" })), "</small><br><b>Saint du jour : ").concat(esc(s), "</b></div>\n    <blockquote class=\"dquote\">\u00AB ").concat(esc(q[0]), " \u00BB<footer>").concat(esc(q[1]), "</footer></blockquote></div>");
+        }
         function agendaHTML() {
             var now = /* @__PURE__ */ new Date(), day0 = new Date(now.getFullYear(), now.getMonth(), now.getDate()), day1 = new Date(day0.getTime() + 864e5);
             var xs = ics.externalEvents(day0, day1).map(function (o) { return ({ title: o.title, starts_at: o.start.toISOString(), owner: o.cal.name, allDay: o.allDay, color: o.cal.color }); });
@@ -6293,7 +6442,7 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
         }
         var dashboard = {
             html: function () {
-                return "<div class=\"dash\"><div class=\"dashwx\">".concat(weatherHTML(), "</div><div class=\"dashradar\">").concat(radarHTML(), "</div><div class=\"grid2\"><div>").concat(agendaHTML(), "</div><div>").concat(newsHTML(), "</div></div></div>");
+                return "<div class=\"dash\"><div class=\"dashwx\">".concat(weatherHTML(), "</div><div class=\"dashradar\">").concat(radarHTML(), "</div><div class=\"dashside\">").concat(dailyHTML()).concat(pressureHTML(), "<div class=\"grid2\"><div>").concat(agendaHTML(), "</div><div>").concat(newsHTML(), "</div></div></div></div>");
             },
             bind: function (root, rerender, go) {
                 var _this = this;
@@ -6414,6 +6563,11 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                             redraw();
                     });
                 }
+                if (city() && Date.now() - prTry >= 6e4 && (!pr || Date.now() - pr.at > 30 * 60 * 1e3))
+                    loadPressure().then(function (ok) {
+                        if (ok)
+                            redraw();
+                    });
                 ics.refreshAll(false).then(function (ch) {
                     if (ch)
                         redraw();
@@ -7028,7 +7182,7 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                         fields: [{ name: "title", label: "Nom", required: true, full: true }, { name: "spotify_url", label: "Lien Spotify ou YouTube", required: true, full: true, placeholder: "https://open.spotify.com/playlist/\u2026 ou https://www.youtube.com/watch?v=\u2026", hint: "Spotify : \u22EF \u203A Partager \u203A Copier le lien. YouTube : Partager \u203A Copier le lien (vid\xE9o ou playlist)." }, { name: "owner", label: "\xC0 qui", type: "select", options: PEOPLE }],
                         danger: p.id ? { label: "Supprimer", confirm: "Supprimer cette playlist ?", run: function () { return db.del("playlists", p.id); } } : null,
                         onSubmit: function (v) { return __awaiter(_this, void 0, void 0, function () {
-                            var i, save, e_47, row;
+                            var i, save, e_48, row;
                             return __generator(this, function (_d) {
                                 switch (_d.label) {
                                     case 0:
@@ -7045,15 +7199,15 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                                         _d.sent();
                                         return [3 /*break*/, 7];
                                     case 3:
-                                        e_47 = _d.sent();
-                                        if (!/owner/i.test(e_47.message || "")) return [3 /*break*/, 5];
+                                        e_48 = _d.sent();
+                                        if (!/owner/i.test(e_48.message || "")) return [3 /*break*/, 5];
                                         row = __spreadValues({}, v);
                                         delete row.owner;
                                         return [4 /*yield*/, save(row)];
                                     case 4:
                                         _d.sent();
                                         return [3 /*break*/, 6];
-                                    case 5: throw e_47;
+                                    case 5: throw e_48;
                                     case 6: return [3 /*break*/, 7];
                                     case 7: return [2 /*return*/];
                                 }
@@ -7215,7 +7369,7 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
         }
         function enter(user) {
             return __awaiter(this, void 0, void 0, function () {
-                var e_48, missing;
+                var e_49, missing;
                 return __generator(this, function (_d) {
                     switch (_d.label) {
                         case 0:
@@ -7241,10 +7395,10 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                             db.startRealtime();
                             return [3 /*break*/, 5];
                         case 4:
-                            e_48 = _d.sent();
-                            console.error(e_48);
-                            missing = /relation|does not exist|schema cache|permission|42P01|PGRST/i.test(e_48.message || "");
-                            $("#banner").innerHTML = "<div class=\"card glass warn\"><b>Impossible de charger les donn\u00E9es.</b> ".concat(missing ? "Les tables ne sont pas pr\xEAtes : ex\xE9cutez <code>supabase/002_family_sync.sql</code> dans le SQL Editor de Supabase." : esc(e_48.message || ""), "</div>");
+                            e_49 = _d.sent();
+                            console.error(e_49);
+                            missing = /relation|does not exist|schema cache|permission|42P01|PGRST/i.test(e_49.message || "");
+                            $("#banner").innerHTML = "<div class=\"card glass warn\"><b>Impossible de charger les donn\u00E9es.</b> ".concat(missing ? "Les tables ne sont pas pr\xEAtes : ex\xE9cutez <code>supabase/002_family_sync.sql</code> dans le SQL Editor de Supabase." : esc(e_49.message || ""), "</div>");
                             db.startRealtime();
                             return [3 /*break*/, 5];
                         case 5: return [2 /*return*/];
