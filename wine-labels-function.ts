@@ -121,6 +121,57 @@ async function priceFor(b: { key: string; url?: string; query?: string; name?: s
   return { key: b.key, ok: false, error: vivErr + ' ; Wine-Searcher : aucun prix', page: vivPage || undefined };
 }
 
+// ---- albums partagés (lecture par lien) : iCloud « sharedalbum » et Google Photos
+const B62 = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
+const b62 = (t: string) => { let n = 0; for (const c of t) n = n * 62 + Math.max(0, B62.indexOf(c)); return n; };
+async function icloudAlbum(token: string) {
+  const part = token[0] === 'A' ? b62(token[1]) : b62(token.substring(1, 3));
+  let host = 'p' + String(part).padStart(2, '0') + '-sharedstreams.icloud.com';
+  const post = async (path: string, body: unknown) => {
+    for (let k = 0; k < 2; k++) {
+      const r = await fetch('https://' + host + '/' + token + '/sharedstreams/' + path, { method: 'POST', headers: { 'Content-Type': 'application/json', 'User-Agent': UA }, body: JSON.stringify(body) });
+      if (r.status === 330) { const j = await r.json().catch(() => ({})); if (j['X-Apple-MMe-Host']) { host = j['X-Apple-MMe-Host']; continue; } }
+      if (!r.ok) throw new Error('iCloud a répondu ' + r.status);
+      return await r.json();
+    }
+    throw new Error('iCloud : redirection impossible');
+  };
+  const st = await post('webstream', { streamCtag: null });
+  const photos = ((st.photos || []) as Array<Record<string, any>>).filter(p => p.derivatives && !/video/i.test(String(p.mediaAssetType || '')));
+  photos.sort((a, b) => String(b.dateCreated || '').localeCompare(String(a.dateCreated || '')));
+  const top = photos.slice(0, 200), urls: Record<string, string> = {};
+  for (let i = 0; i < top.length; i += 25) {
+    const ids = top.slice(i, i + 25).map(p => p.photoGuid), r = await post('webasseturls', { photoGuids: ids });
+    for (const [ck, v] of Object.entries(r.items || {})) urls[ck] = 'https://' + (v as any).url_location + (v as any).url_path;
+  }
+  const out: Array<{ u: string; t: string; d: string }> = [];
+  for (const p of top) {
+    const ks = Object.keys(p.derivatives).filter(k => /^\d+$/.test(k)).sort((a, b) => +b - +a); if (!ks.length) continue;
+    const big = urls[p.derivatives[ks[0]].checksum]; const small = urls[p.derivatives[ks.filter(k => +k >= 250).pop() || ks[ks.length - 1]].checksum] || big;
+    if (big) out.push({ u: big, t: small, d: String(p.dateCreated || '') });
+  }
+  return out;
+}
+async function googleAlbum(link: string) {
+  const r = await fetch(link, { headers: { 'User-Agent': UA, 'Accept-Language': 'fr-FR,fr;q=0.9' }, redirect: 'follow' });
+  if (!r.ok) throw new Error('Google Photos a répondu ' + r.status);
+  const html = await r.text(), seen = new Set<string>(), out: Array<{ u: string; t: string; d: string }> = [];
+  for (const m of html.matchAll(/https:\/\/lh3\.googleusercontent\.com\/pw\/[A-Za-z0-9_-]{20,}/g)) { if (seen.has(m[0])) continue; seen.add(m[0]); out.push({ u: m[0] + '=w1600', t: m[0] + '=w480-h480-c', d: '' }); if (out.length >= 300) break; }
+  if (!out.length) throw new Error('aucune photo trouvée : vérifiez que le lien de partage de l’album est actif');
+  return out;
+}
+async function albumPhotos(link: string) {
+  let u: URL; try { u = new URL(link); } catch { throw new Error('lien invalide'); }
+  if (/(^|\.)icloud\.com$/.test(u.hostname)) {
+    let tok = (u.hash || '').replace(/^#/, '');
+    if (!tok && /share\.icloud\.com/.test(u.hostname)) { const r = await fetch(link, { headers: { 'User-Agent': UA }, redirect: 'follow' }); tok = (new URL(r.url).hash || '').replace(/^#/, ''); }
+    if (!/^[A-Za-z0-9]{8,}$/.test(tok)) throw new Error('lien iCloud non reconnu : utilisez « Site web public » dans l’album partagé (lien icloud.com/sharedalbum/#…)');
+    return icloudAlbum(tok);
+  }
+  if (/^(photos\.app\.goo\.gl|photos\.google\.com|goo\.gl)$/.test(u.hostname)) return googleAlbum(link);
+  throw new Error('seuls les liens Google Photos et iCloud sont acceptés');
+}
+
 // Relais pour le tableau de bord (météo, radar) : utile aux vieux appareils (iPad iOS 9) qui n'acceptent plus les certificats d'Open-Meteo / RainViewer.
 const PX = /^(api\.open-meteo\.com|geocoding-api\.open-meteo\.com|api\.rainviewer\.com)$/;
 const TX = /^(tilecache\.rainviewer\.com|[a-d]\.basemaps\.cartocdn\.com)$/;
@@ -167,6 +218,7 @@ Deno.serve(async req => {
       if (!/deezer\.com\/(?:[a-z]{2}(?:-[a-z]{2})?\/)?(playlist|album|track)\/\d+/.test(url) && m) url = 'https://www.deezer.com/' + m[1] + '/' + m[2];
       return json({ url });
     }
+    if (typeof body.album === 'string') { try { return json({ photos: await albumPhotos(body.album) }); } catch (e) { return json({ error: String((e as Error).message || e) }, 200); } }
     if (Array.isArray(body.tiles)) {
       const tiles = await Promise.all(body.tiles.slice(0, 20).map((u: string) => tileData(String(u)).catch(() => null)));
       return json({ tiles });

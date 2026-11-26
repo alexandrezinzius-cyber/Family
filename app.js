@@ -422,8 +422,8 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
         return { MONTHS: MONTHS, seasonalNames: seasonalNames, scoreRecipe: scoreRecipe };
     })();
     __m.db = (function () {
-        var TABLES = ["cellar_items", "recipes", "meal_plans", "shopping_items", "family_events", "playlists", "family_notes", "family_photos", "family_tracks"];
-        var OPTIONAL = ["family_photos", "family_tracks"];
+        var TABLES = ["cellar_items", "recipes", "meal_plans", "shopping_items", "family_events", "playlists", "family_notes", "family_photos", "family_tracks", "family_calendars", "family_reminders", "family_albums"];
+        var OPTIONAL = ["family_photos", "family_tracks", "family_calendars", "family_reminders", "family_albums"];
         var CACHE_KEY = "family-cache-v3";
         var store = {
             sb: null,
@@ -5070,19 +5070,127 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
             catch (e) {
             }
         };
-        var calendars = function () { return jget(CAL_KEY) || []; };
+        var dbList = function () { return (db.store.t.family_calendars || []).map(function (c) { return ({ id: c.id, name: c.name, url: c.url, color: c.color || COLORS[0] }); }); };
+        var calendars = function () {
+            var d = dbList(), seen = {};
+            d.forEach(function (c) {
+                seen[c.url] = 1;
+            });
+            return d.concat((jget(CAL_KEY) || []).filter(function (c) { return !seen[normUrl(c.url)]; }));
+        };
         function addCalendar(name, url) {
-            var l = calendars();
-            var c = { id: "c" + Date.now().toString(36), name: name, url: normUrl(url), color: COLORS[l.length % COLORS.length] };
-            l.push(c);
-            jset(CAL_KEY, l);
-            return c;
+            return __awaiter(this, void 0, void 0, function () {
+                var u, n, color, row, e_39, l, c;
+                return __generator(this, function (_d) {
+                    switch (_d.label) {
+                        case 0:
+                            u = normUrl(url), n = calendars().length, color = COLORS[n % COLORS.length];
+                            _d.label = 1;
+                        case 1:
+                            _d.trys.push([1, 3, , 4]);
+                            return [4 /*yield*/, db.add("family_calendars", { name: name, url: u, color: color })];
+                        case 2:
+                            row = _d.sent();
+                            return [2 /*return*/, { id: row.id, name: name, url: u, color: color }];
+                        case 3:
+                            e_39 = _d.sent();
+                            l = jget(CAL_KEY) || [];
+                            c = { id: "c" + Date.now().toString(36), name: name, url: u, color: color };
+                            l.push(c);
+                            jset(CAL_KEY, l);
+                            return [2 /*return*/, c];
+                        case 4: return [2 /*return*/];
+                    }
+                });
+            });
         }
         function removeCalendar(id) {
-            jset(CAL_KEY, calendars().filter(function (c) { return c.id !== id; }));
-            var d = jget(DATA_KEY) || {};
-            delete d[id];
-            jset(DATA_KEY, d);
+            return __awaiter(this, void 0, void 0, function () {
+                var e_40, d;
+                return __generator(this, function (_d) {
+                    switch (_d.label) {
+                        case 0:
+                            if (!(/^c[a-z0-9]+$/.test(id) && (jget(CAL_KEY) || []).some(function (c) { return c.id === id; }))) return [3 /*break*/, 1];
+                            jset(CAL_KEY, (jget(CAL_KEY) || []).filter(function (c) { return c.id !== id; }));
+                            return [3 /*break*/, 4];
+                        case 1:
+                            _d.trys.push([1, 3, , 4]);
+                            return [4 /*yield*/, db.del("family_calendars", id)];
+                        case 2:
+                            _d.sent();
+                            return [3 /*break*/, 4];
+                        case 3:
+                            e_40 = _d.sent();
+                            return [3 /*break*/, 4];
+                        case 4:
+                            d = jget(DATA_KEY) || {};
+                            delete d[id];
+                            jset(DATA_KEY, d);
+                            return [2 /*return*/];
+                    }
+                });
+            });
+        }
+        var migrated = false;
+        function migrateLocal() {
+            return __awaiter(this, void 0, void 0, function () {
+                var loc, have, keep, loc_1, loc_1_1, c, e_41, e_42_1;
+                var e_42, _d;
+                return __generator(this, function (_e) {
+                    switch (_e.label) {
+                        case 0:
+                            if (migrated || !db.store.sb)
+                                return [2 /*return*/];
+                            migrated = true;
+                            loc = jget(CAL_KEY) || [];
+                            if (!loc.length)
+                                return [2 /*return*/];
+                            have = {};
+                            dbList().forEach(function (c) {
+                                have[c.url] = 1;
+                            });
+                            keep = [];
+                            _e.label = 1;
+                        case 1:
+                            _e.trys.push([1, 8, 9, 10]);
+                            loc_1 = __values(loc), loc_1_1 = loc_1.next();
+                            _e.label = 2;
+                        case 2:
+                            if (!!loc_1_1.done) return [3 /*break*/, 7];
+                            c = loc_1_1.value;
+                            if (have[normUrl(c.url)])
+                                return [3 /*break*/, 6];
+                            _e.label = 3;
+                        case 3:
+                            _e.trys.push([3, 5, , 6]);
+                            return [4 /*yield*/, db.add("family_calendars", { name: c.name, url: normUrl(c.url), color: c.color })];
+                        case 4:
+                            _e.sent();
+                            return [3 /*break*/, 6];
+                        case 5:
+                            e_41 = _e.sent();
+                            keep.push(c);
+                            return [3 /*break*/, 6];
+                        case 6:
+                            loc_1_1 = loc_1.next();
+                            return [3 /*break*/, 2];
+                        case 7: return [3 /*break*/, 10];
+                        case 8:
+                            e_42_1 = _e.sent();
+                            e_42 = { error: e_42_1 };
+                            return [3 /*break*/, 10];
+                        case 9:
+                            try {
+                                if (loc_1_1 && !loc_1_1.done && (_d = loc_1.return)) _d.call(loc_1);
+                            }
+                            finally { if (e_42) throw e_42.error; }
+                            return [7 /*endfinally*/];
+                        case 10:
+                            jset(CAL_KEY, keep);
+                            return [2 /*return*/];
+                    }
+                });
+            });
         }
         var normUrl = function (u) { return String(u || "").trim().replace(/^webcal:\/\//i, "https://"); };
         var unfold = function (s) { return s.replace(/\r?\n[ \t]/g, "").split(/\r?\n/); };
@@ -5240,7 +5348,7 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
         }
         function fetchText(url) {
             return __awaiter(this, void 0, void 0, function () {
-                var to, r, t, e_39, sb, _d, data, error;
+                var to, r, t, e_43, sb, _d, data, error;
                 return __generator(this, function (_e) {
                     switch (_e.label) {
                         case 0:
@@ -5260,7 +5368,7 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                             _e.label = 4;
                         case 4: return [3 /*break*/, 6];
                         case 5:
-                            e_39 = _e.sent();
+                            e_43 = _e.sent();
                             return [3 /*break*/, 6];
                         case 6:
                             sb = db.store.sb;
@@ -5278,53 +5386,55 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
         }
         function refreshAll(force) {
             return __awaiter(this, void 0, void 0, function () {
-                var list, data, changed, list_1, list_1_1, c, old, text, evs, err_18, e_40_1;
-                var e_40, _d;
+                var list, data, changed, list_1, list_1_1, c, old, text, evs, err_18, e_44_1;
+                var e_44, _d;
                 return __generator(this, function (_e) {
                     switch (_e.label) {
-                        case 0:
+                        case 0: return [4 /*yield*/, migrateLocal()];
+                        case 1:
+                            _e.sent();
                             list = calendars(), data = jget(DATA_KEY) || {};
                             changed = false;
-                            _e.label = 1;
-                        case 1:
-                            _e.trys.push([1, 8, 9, 10]);
-                            list_1 = __values(list), list_1_1 = list_1.next();
                             _e.label = 2;
                         case 2:
-                            if (!!list_1_1.done) return [3 /*break*/, 7];
+                            _e.trys.push([2, 9, 10, 11]);
+                            list_1 = __values(list), list_1_1 = list_1.next();
+                            _e.label = 3;
+                        case 3:
+                            if (!!list_1_1.done) return [3 /*break*/, 8];
                             c = list_1_1.value;
                             old = data[c.id];
                             if (!force && old && Date.now() - old.at < 30 * 60 * 1e3)
-                                return [3 /*break*/, 6];
-                            _e.label = 3;
-                        case 3:
-                            _e.trys.push([3, 5, , 6]);
-                            return [4 /*yield*/, fetchText(c.url)];
+                                return [3 /*break*/, 7];
+                            _e.label = 4;
                         case 4:
+                            _e.trys.push([4, 6, , 7]);
+                            return [4 /*yield*/, fetchText(c.url)];
+                        case 5:
                             text = _e.sent(), evs = parseICS(text);
                             data[c.id] = { at: Date.now(), events: evs.map(function (e) { return ({ t: e.title, p: e.place, s: e.start.getTime(), e: e.end ? e.end.getTime() : null, a: e.allDay, r: e.rrule, x: e.ex }); }) };
                             changed = true;
-                            return [3 /*break*/, 6];
-                        case 5:
+                            return [3 /*break*/, 7];
+                        case 6:
                             err_18 = _e.sent();
                             data[c.id] = { at: Date.now(), events: old ? old.events : [], error: err_18.message };
                             changed = true;
-                            return [3 /*break*/, 6];
-                        case 6:
+                            return [3 /*break*/, 7];
+                        case 7:
                             list_1_1 = list_1.next();
-                            return [3 /*break*/, 2];
-                        case 7: return [3 /*break*/, 10];
-                        case 8:
-                            e_40_1 = _e.sent();
-                            e_40 = { error: e_40_1 };
-                            return [3 /*break*/, 10];
+                            return [3 /*break*/, 3];
+                        case 8: return [3 /*break*/, 11];
                         case 9:
+                            e_44_1 = _e.sent();
+                            e_44 = { error: e_44_1 };
+                            return [3 /*break*/, 11];
+                        case 10:
                             try {
                                 if (list_1_1 && !list_1_1.done && (_d = list_1.return)) _d.call(list_1);
                             }
-                            finally { if (e_40) throw e_40.error; }
+                            finally { if (e_44) throw e_44.error; }
                             return [7 /*endfinally*/];
-                        case 10:
+                        case 11:
                             jset(DATA_KEY, data);
                             return [2 /*return*/, changed];
                     }
@@ -5346,7 +5456,7 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
             });
             return out;
         }
-        return { COLORS: COLORS, calendars: calendars, addCalendar: addCalendar, removeCalendar: removeCalendar, normUrl: normUrl, parseICS: parseICS, expand: expand, refreshAll: refreshAll, calError: calError, externalEvents: externalEvents };
+        return { COLORS: COLORS, calendars: calendars, addCalendar: addCalendar, removeCalendar: removeCalendar, migrateLocal: migrateLocal, normUrl: normUrl, unfold: unfold, unesc: unesc, pDate: pDate, parseICS: parseICS, expand: expand, fetchText: fetchText, refreshAll: refreshAll, calError: calError, externalEvents: externalEvents };
     })();
     __m.news = (function () {
         var _d = __m.util, $ = _d.$, $$ = _d.$$, esc = _d.esc, toast = _d.toast, ymd = _d.ymd, addDays = _d.addDays;
@@ -5482,7 +5592,7 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
         }
         function refresh(force) {
             return __awaiter(this, void 0, void 0, function () {
-                var now, c, _d, e_41;
+                var now, c, _d, e_45;
                 var _e;
                 return __generator(this, function (_f) {
                     switch (_f.label) {
@@ -5502,8 +5612,8 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                             _d.apply(void 0, [(_e.sections = _f.sent(), _e)]);
                             return [2 /*return*/, true];
                         case 3:
-                            e_41 = _f.sent();
-                            error = e_41.message || "erreur";
+                            e_45 = _f.sent();
+                            error = e_45.message || "erreur";
                             return [2 /*return*/, false];
                         case 4:
                             loading = false;
@@ -5592,7 +5702,40 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
             ["nostalgie", "Nostalgie", "https://streaming.nrjaudio.fm/oug7girb92oc", "https://www.nostalgie.fr/", "music"],
             ["cheriefm", "Ch\xE9rie FM", "https://streaming.nrjaudio.fm/ou2n2epw5hs7", "https://www.cheriefm.fr/", "music"]
         ];
-        var radioEl = null, radioKey = "", radioState = "", radioStep = 0, radioUrl = "", radioErr = 0;
+        var HLS = { franceinfo: "https://stream.radiofrance.fr/franceinfo/franceinfo.m3u8?id=radiofrance", franceinter: "https://stream.radiofrance.fr/franceinter/franceinter.m3u8?id=radiofrance" };
+        var radioEl = null, radioKey = "", radioState = "", radioStep = 0, radioChain = [], radioTimer = 0, radioErr = 0;
+        function radioChainFor(r) {
+            var c = [r[2]];
+            if (/^https:/.test(r[2]))
+                c.push("http:" + r[2].slice(6));
+            if (HLS[r[0]])
+                c.push(HLS[r[0]]);
+            if (window.SUPABASE_URL)
+                c.push(window.SUPABASE_URL + "/functions/v1/" + (window.FN_LABELS || "wine-labels") + "?stream=" + encodeURIComponent(r[2]));
+            return c;
+        }
+        function radioTry(i) {
+            clearTimeout(radioTimer);
+            if (i >= radioChain.length) {
+                radioState = "err";
+                radioUi();
+                return;
+            }
+            radioStep = i;
+            radioState = "load";
+            radioUi();
+            radioEl.src = radioChain[i];
+            radioEl.load();
+            var q = radioEl.play();
+            if (q && q.catch)
+                q.catch(function () {
+                });
+            var mine = radioKey;
+            radioTimer = setTimeout(function () {
+                if (radioKey === mine && radioState === "load" && radioStep === i)
+                    radioTry(i + 1);
+            }, i === radioChain.length - 1 ? 2e4 : 7e3);
+        }
         var radioUi = function () {
             $$(".radiobtn").forEach(function (b) {
                 var on = b.dataset.radio === radioKey;
@@ -5610,9 +5753,9 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                     l.href = r[3];
             });
         };
-        var radioCard = function (group) {
+        var radioCard = function (group, keys) {
             if (group === void 0) { group = "news"; }
-            return "<div class=\"card glass radiocard\"><h3 class=\"script\">Radio en direct</h3>\n  <div class=\"radiolist\">".concat(RADIOS.filter(function (r) { return r[4] === group; }).map(function (r) { return "<button class=\"btn radiobtn ".concat(radioKey === r[0] && radioState !== "err" && radioState ? "on" : "", "\" data-radio=\"").concat(r[0], "\"><b>").concat(esc(r[1]), "</b><small>").concat(radioKey === r[0] && radioState === "play" ? "En direct \xB7 toucher pour arr\xEAter" : "\xC9couter", "</small></button>"); }).join(""), "</div>\n  <p class=\"muted small\"><a class=\"radioLink\" href=\"#\" target=\"_blank\" rel=\"noopener\" hidden>Ouvrir le direct sur le site de la radio</a></p></div>");
+            return "<div class=\"card glass radiocard\"><h3 class=\"script\">Radio en direct</h3>\n  <div class=\"radiolist\">".concat(RADIOS.filter(function (r) { return keys ? keys.indexOf(r[0]) >= 0 : r[4] === group; }).map(function (r) { return "<button class=\"btn radiobtn ".concat(radioKey === r[0] && radioState !== "err" && radioState ? "on" : "", "\" data-radio=\"").concat(r[0], "\"><b>").concat(esc(r[1]), "</b><small>").concat(radioKey === r[0] && radioState === "play" ? "En direct \xB7 toucher pour arr\xEAter" : "\xC9couter", "</small></button>"); }).join(""), "</div>\n  <p class=\"muted small\"><a class=\"radioLink\" href=\"#\" target=\"_blank\" rel=\"noopener\" hidden>Ouvrir le direct sur le site de la radio</a></p></div>");
         };
         function bindRadio(root) {
             $$("[data-radio]", root).forEach(function (b) { return b.onclick = function () {
@@ -5623,37 +5766,18 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                     radioEl = new Audio();
                     radioEl.preload = "none";
                     radioEl.onplaying = function () {
+                        clearTimeout(radioTimer);
                         radioState = "play";
                         radioUi();
                     };
                     radioEl.onerror = function () {
-                        var u = radioEl.getAttribute("src") || "";
-                        if (/^https:\/\/(icecast|streaming|rfm|mfm)\./.test(u) && radioStep === 0) {
-                            radioStep = 1;
-                            radioEl.src = "http:" + u.slice(6);
-                            radioEl.load();
-                            var q = radioEl.play();
-                            if (q && q.catch)
-                                q.catch(function () {
-                                });
-                            return;
+                        if (radioState === "load" || radioState === "play") {
+                            radioErr = radioEl.error ? radioEl.error.code : 0;
+                            radioTry(radioStep + 1);
                         }
-                        if (/^http:\/\//.test(u) && radioStep === 1 && window.SUPABASE_URL) {
-                            radioStep = 2;
-                            radioEl.src = window.SUPABASE_URL + "/functions/v1/" + (window.FN_LABELS || "wine-labels") + "?stream=" + encodeURIComponent(radioUrl);
-                            radioEl.load();
-                            var q = radioEl.play();
-                            if (q && q.catch)
-                                q.catch(function () {
-                                });
-                            return;
-                        }
-                        radioErr = radioEl.error ? radioEl.error.code : 0;
-                        radioState = "err";
-                        radioUi();
                     };
                     radioEl.onended = function () {
-                        if (radioStep === 2 && radioState !== "" && radioKey) {
+                        if (radioKey && radioState === "play" && radioStep === radioChain.length - 1) {
                             radioEl.load();
                             var q = radioEl.play();
                             if (q && q.catch)
@@ -5669,6 +5793,7 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                     };
                 }
                 if (radioKey === r[0] && (radioState === "play" || radioState === "load")) {
+                    clearTimeout(radioTimer);
                     radioEl.pause();
                     radioKey = "";
                     radioState = "";
@@ -5677,19 +5802,9 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                 }
                 stopReading();
                 radioKey = r[0];
-                radioState = "load";
-                radioStep = 0;
-                radioUrl = r[2];
-                radioEl.src = r[2];
-                radioUi();
-                var pr = radioEl.play();
-                if (pr && pr.catch)
-                    pr.catch(function () {
-                        if (radioState === "load") {
-                            radioState = "err";
-                            radioUi();
-                        }
-                    });
+                radioChain = radioChainFor(r);
+                radioErr = 0;
+                radioTry(0);
             }; });
             radioUi();
         }
@@ -5907,7 +6022,7 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                 playAt(i < 0 ? 0 : i);
             }; });
             $$("[data-td]", box).forEach(function (b) { return b.onclick = function () { return __awaiter(_this, void 0, void 0, function () {
-                var x, e_42;
+                var x, e_46;
                 return __generator(this, function (_d) {
                     switch (_d.label) {
                         case 0:
@@ -5931,8 +6046,8 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                             rerender();
                             return [3 /*break*/, 4];
                         case 3:
-                            e_42 = _d.sent();
-                            toast(e_42.message || String(e_42), "err");
+                            e_46 = _d.sent();
+                            toast(e_46.message || String(e_46), "err");
                             return [3 /*break*/, 4];
                         case 4: return [2 /*return*/];
                     }
@@ -6122,12 +6237,336 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
         }
         return { saintOf: saintOf, quoteOf: quoteOf };
     })();
+    __m.reminders = (function () {
+        var _d = __m.util, $ = _d.$, $$ = _d.$$, esc = _d.esc, toast = _d.toast, openModal = _d.openModal, closeModal = _d.closeModal, ymd = _d.ymd, parseYmd = _d.parseYmd, addDays = _d.addDays, fmtShort = _d.fmtShort;
+        var db = __m.db;
+        var ics = __m.ics;
+        var rows = function () { return db.store.t.family_reminders || []; };
+        var REP = { "": "Une fois", daily: "Chaque jour", weekly: "Chaque semaine", monthly: "Chaque mois", yearly: "Chaque ann\xE9e" };
+        var today = function () { return ymd(/* @__PURE__ */ new Date()); };
+        var nextDue = function (d, rep) {
+            var x = parseYmd(d), t = today();
+            var n = 0;
+            do {
+                if (rep === "daily")
+                    x.setDate(x.getDate() + 1);
+                else if (rep === "weekly")
+                    x.setDate(x.getDate() + 7);
+                else if (rep === "monthly")
+                    x.setMonth(x.getMonth() + 1);
+                else
+                    x.setFullYear(x.getFullYear() + 1);
+            } while (ymd(x) <= t && ++n < 800);
+            return ymd(x);
+        };
+        var label = function (r) { return (r.due_date ? fmtShort(parseYmd(r.due_date)) : "Sans date") + (r.due_time ? " \xB7 " + r.due_time : "") + (r.repeat ? " \xB7 " + REP[r.repeat].toLowerCase() : ""); };
+        var byDue = function (a, b) { return (a.due_date || "9999").localeCompare(b.due_date || "9999") || (a.due_time || "").localeCompare(b.due_time || "") || (a.title || "").localeCompare(b.title || ""); };
+        var dueToday = function () { return rows().filter(function (r) { return !r.done && r.due_date && r.due_date <= today(); }).sort(byDue); };
+        function complete(id, done) {
+            return __awaiter(this, void 0, void 0, function () {
+                var r;
+                return __generator(this, function (_d) {
+                    r = rows().find(function (x) { return x.id === id; });
+                    if (!r)
+                        return [2 /*return*/];
+                    if (done && r.repeat && r.due_date)
+                        return [2 /*return*/, db.patch("family_reminders", id, { due_date: nextDue(r.due_date, r.repeat), done: false })];
+                    return [2 /*return*/, db.patch("family_reminders", id, { done: done, done_at: done ? ( /* @__PURE__ */new Date()).toISOString() : null })];
+                });
+            });
+        }
+        var item = function (r) { return "<div class=\"remrow ".concat(r.done ? "done" : "", " ").concat(!r.done && r.due_date && r.due_date < today() ? "late" : "", "\"><button class=\"tick\" data-rdone=\"").concat(r.id, "\" aria-label=\"Terminer\">").concat(r.done ? "\u2713" : "", "</button><span class=\"grow\"><b>").concat(esc(r.title), "</b><br><small class=\"muted\">").concat(esc(label(r))).concat(r.notes ? " \xB7 " + esc(r.notes) : "", "</small></span><button class=\"iconbtn\" data-redit=\"").concat(r.id, "\" aria-label=\"Modifier\">\u2026</button></div>"); };
+        var cardHTML = function () {
+            var l = dueToday();
+            return "<div class=\"card glass\"><h3 class=\"script\">Rappels du jour</h3>".concat(l.length ? l.slice(0, 8).map(item).join("") : '<p class="muted">Aucun rappel pour aujourd\u2019hui.</p>', "<button class=\"btn small\" data-go=\"reminders\">Tous les rappels</button></div>");
+        };
+        function bindCard(root, rerender) {
+            var _this = this;
+            $$("[data-rdone]", root).forEach(function (b) { return b.onclick = function (e) { return __awaiter(_this, void 0, void 0, function () {
+                var err_20;
+                return __generator(this, function (_d) {
+                    switch (_d.label) {
+                        case 0:
+                            e.stopPropagation();
+                            _d.label = 1;
+                        case 1:
+                            _d.trys.push([1, 3, , 4]);
+                            return [4 /*yield*/, complete(b.dataset.rdone, true)];
+                        case 2:
+                            _d.sent();
+                            rerender();
+                            return [3 /*break*/, 4];
+                        case 3:
+                            err_20 = _d.sent();
+                            toast(err_20.message, "err");
+                            return [3 /*break*/, 4];
+                        case 4: return [2 /*return*/];
+                    }
+                });
+            }); }; });
+        }
+        function editor(r, rerender) {
+            var _this = this;
+            r = r || {};
+            openModal("<h2 class=\"script\">".concat(r.id ? "Modifier le rappel" : "Nouveau rappel", "</h2><form id=\"remForm\" class=\"stack\">\n    <label class=\"field\"><span>Rappel</span><input name=\"title\" required value=\"").concat(esc(r.title || ""), "\" placeholder=\"Ex. Appeler le m\u00E9decin\"></label>\n    <div class=\"row2\"><label class=\"field\"><span>Date</span><input type=\"date\" name=\"due_date\" value=\"").concat(esc(r.due_date || today()), "\"></label><label class=\"field\"><span>Heure (facultatif)</span><input type=\"time\" name=\"due_time\" value=\"").concat(esc(r.due_time || ""), "\"></label></div>\n    <label class=\"field\"><span>R\u00E9p\u00E9tition</span><select name=\"repeat\">").concat(Object.keys(REP).map(function (k) { return "<option value=\"".concat(k, "\" ").concat(k === (r.repeat || "") ? "selected" : "", ">").concat(REP[k], "</option>"); }).join(""), "</select></label>\n    <label class=\"field\"><span>Note</span><input name=\"notes\" value=\"").concat(esc(r.notes || ""), "\"></label>\n    <div class=\"formactions\">").concat(r.id ? '<button type="button" class="btn danger" id="remDel">Supprimer</button>' : "", "<span class=\"grow\"></span><button type=\"button\" class=\"btn\" data-close>Annuler</button><button class=\"btn primary\" type=\"submit\">Enregistrer</button></div></form>"), {
+                onMount: function (root) {
+                    $("[data-close]", root).onclick = closeModal;
+                    if (r.id)
+                        $("#remDel", root).onclick = function () { return __awaiter(_this, void 0, void 0, function () {
+                            return __generator(this, function (_d) {
+                                switch (_d.label) {
+                                    case 0: return [4 /*yield*/, db.del("family_reminders", r.id)];
+                                    case 1:
+                                        _d.sent();
+                                        closeModal();
+                                        rerender();
+                                        return [2 /*return*/];
+                                }
+                            });
+                        }); };
+                    $("#remForm", root).onsubmit = function (e) { return __awaiter(_this, void 0, void 0, function () {
+                        var f, row, err_21;
+                        return __generator(this, function (_d) {
+                            switch (_d.label) {
+                                case 0:
+                                    e.preventDefault();
+                                    f = e.target;
+                                    row = { title: f.title.value.trim(), due_date: f.due_date.value || null, due_time: f.due_time.value || null, repeat: f.repeat.value, notes: f.notes.value.trim() || null };
+                                    _d.label = 1;
+                                case 1:
+                                    _d.trys.push([1, 6, , 7]);
+                                    if (!r.id) return [3 /*break*/, 3];
+                                    return [4 /*yield*/, db.patch("family_reminders", r.id, row)];
+                                case 2:
+                                    _d.sent();
+                                    return [3 /*break*/, 5];
+                                case 3: return [4 /*yield*/, db.add("family_reminders", row)];
+                                case 4:
+                                    _d.sent();
+                                    _d.label = 5;
+                                case 5:
+                                    closeModal();
+                                    rerender();
+                                    return [3 /*break*/, 7];
+                                case 6:
+                                    err_21 = _d.sent();
+                                    toast(/family_reminders|relation|schema/i.test(err_21.message) ? "Ex\xE9cutez 006_calendars_reminders.sql dans Supabase" : err_21.message, "err");
+                                    return [3 /*break*/, 7];
+                                case 7: return [2 /*return*/];
+                            }
+                        });
+                    }); };
+                }
+            });
+        }
+        function parseTodos(text) {
+            var out = [];
+            var cur = null, kind = "";
+            ics.unfold(String(text)).forEach(function (line) {
+                var m = line.match(/^BEGIN:(VTODO|VEVENT)$/);
+                if (m) {
+                    cur = {};
+                    kind = m[1];
+                    return;
+                }
+                if (/^END:(VTODO|VEVENT)$/.test(line)) {
+                    if (cur && cur.title && !cur.done && (cur.date || kind === "VTODO"))
+                        out.push(cur);
+                    cur = null;
+                    return;
+                }
+                if (!cur)
+                    return;
+                var i = line.indexOf(":");
+                if (i < 0)
+                    return;
+                var head = line.slice(0, i), val = line.slice(i + 1), semi = head.indexOf(";"), name = (semi < 0 ? head : head.slice(0, semi)).toUpperCase(), params = semi < 0 ? "" : head.slice(semi + 1);
+                if (name === "SUMMARY")
+                    cur.title = ics.unesc(val);
+                else if (name === "UID")
+                    cur.uid = val;
+                else if (name === "DESCRIPTION")
+                    cur.notes = ics.unesc(val).slice(0, 200);
+                else if (name === "DUE" || name === "DTSTART" && !cur.date) {
+                    var p = ics.pDate(val, params);
+                    if (p) {
+                        cur.date = ymd(p.d);
+                        cur.time = p.allDay ? "" : ("0" + p.d.getHours()).slice(-2) + ":" + ("0" + p.d.getMinutes()).slice(-2);
+                    }
+                }
+                else if (name === "STATUS" && /COMPLETED|CANCELLED/i.test(val))
+                    cur.done = true;
+                else if (name === "COMPLETED")
+                    cur.done = true;
+                else if (name === "RRULE") {
+                    var f = (val.match(/FREQ=(\w+)/) || [])[1];
+                    cur.repeat = { DAILY: "daily", WEEKLY: "weekly", MONTHLY: "monthly", YEARLY: "yearly" }[f] || "";
+                }
+            });
+            return out;
+        }
+        function parseLines(text) {
+            return String(text).split(/\r?\n/).map(function (l) { return l.replace(/^[\s\-•*·–]+/, "").trim(); }).filter(Boolean).map(function (l) {
+                var e_47, _d;
+                var p = l.split(/\s*[;|\t]\s*/), o = { title: p[0] };
+                try {
+                    for (var _e = __values(p.slice(1)), _f = _e.next(); !_f.done; _f = _e.next()) {
+                        var x = _f.value;
+                        var m = x.match(/^(\d{1,2})[\/.-](\d{1,2})(?:[\/.-](\d{2,4}))?$/);
+                        if (m) {
+                            var y = m[3] ? m[3].length === 2 ? 2e3 + +m[3] : +m[3] : ( /* @__PURE__ */new Date()).getFullYear();
+                            o.date = y + "-" + ("0" + m[2]).slice(-2) + "-" + ("0" + m[1]).slice(-2);
+                            continue;
+                        }
+                        m = x.match(/^(\d{1,2})[h:](\d{2})?$/i);
+                        if (m)
+                            o.time = ("0" + m[1]).slice(-2) + ":" + (m[2] || "00");
+                    }
+                }
+                catch (e_47_1) { e_47 = { error: e_47_1 }; }
+                finally {
+                    try {
+                        if (_f && !_f.done && (_d = _e.return)) _d.call(_e);
+                    }
+                    finally { if (e_47) throw e_47.error; }
+                }
+                return o;
+            });
+        }
+        function save(list, source, rerender) {
+            return __awaiter(this, void 0, void 0, function () {
+                var have, fresh;
+                return __generator(this, function (_d) {
+                    switch (_d.label) {
+                        case 0:
+                            have = {};
+                            rows().forEach(function (r) {
+                                have[r.external_id || "t:" + r.title + "|" + r.due_date] = 1;
+                            });
+                            fresh = list.filter(function (o) { return !have[o.uid || "t:" + o.title + "|" + (o.date || null)]; }).map(function (o) { return ({ title: o.title, due_date: o.date || today(), due_time: o.time || null, notes: o.notes || null, repeat: o.repeat || "", external_id: o.uid || null, source: source }); });
+                            if (!fresh.length)
+                                return [2 /*return*/, toast("Rien de nouveau \xE0 importer")];
+                            return [4 /*yield*/, db.addMany("family_reminders", fresh)];
+                        case 1:
+                            _d.sent();
+                            toast("".concat(fresh.length, " rappel").concat(fresh.length > 1 ? "s" : "", " import\u00E9").concat(fresh.length > 1 ? "s" : ""));
+                            closeModal();
+                            rerender();
+                            return [2 /*return*/];
+                    }
+                });
+            });
+        }
+        function importDialog(rerender) {
+            var _this = this;
+            openModal("<h2 class=\"script\">Importer des rappels</h2>\n    <p class=\"muted small\">Les rappels import\u00E9s sont enregistr\u00E9s dans le site : ils ne disparaissent plus lors des mises \u00E0 jour.</p>\n    <label class=\"field\"><span>Fichier .ics (Rappels Apple, Google Agenda, Outlook\u2026)</span><input type=\"file\" id=\"remFile\" accept=\".ics,text/calendar\"></label>\n    <form id=\"remUrl\" class=\"stack\"><label class=\"field\"><span>Ou lien iCal (https:// ou webcal://)</span><input name=\"url\" placeholder=\"https://\u2026\"></label><button class=\"btn\" type=\"submit\">Importer ce lien</button></form>\n    <form id=\"remText\" class=\"stack\"><label class=\"field\"><span>Ou collez une liste (un rappel par ligne, \u00AB titre ; 12/12/2026 ; 09:30 \u00BB)</span><textarea name=\"t\" rows=\"4\"></textarea></label><button class=\"btn\" type=\"submit\">Importer la liste</button></form>\n    <div class=\"formactions\"><span class=\"grow\"></span><button class=\"btn\" data-close>Fermer</button></div>", {
+                onMount: function (r) {
+                    $("[data-close]", r).onclick = closeModal;
+                    $("#remFile", r).onchange = function (e) {
+                        var f = e.target.files[0];
+                        if (!f)
+                            return;
+                        var fr = new FileReader();
+                        fr.onload = function () { return save(parseTodos(fr.result), "import", rerender).catch(function (err) { return toast(err.message, "err"); }); };
+                        fr.readAsText(f);
+                    };
+                    $("#remUrl", r).onsubmit = function (e) { return __awaiter(_this, void 0, void 0, function () {
+                        var u, _d, _e, err_22;
+                        return __generator(this, function (_f) {
+                            switch (_f.label) {
+                                case 0:
+                                    e.preventDefault();
+                                    u = ics.normUrl(e.target.url.value);
+                                    if (!u)
+                                        return [2 /*return*/];
+                                    _f.label = 1;
+                                case 1:
+                                    _f.trys.push([1, 4, , 5]);
+                                    toast("Lecture\u2026");
+                                    _d = save;
+                                    _e = parseTodos;
+                                    return [4 /*yield*/, ics.fetchText(u)];
+                                case 2: return [4 /*yield*/, _d.apply(void 0, [_e.apply(void 0, [_f.sent()]), "import", rerender])];
+                                case 3:
+                                    _f.sent();
+                                    return [3 /*break*/, 5];
+                                case 4:
+                                    err_22 = _f.sent();
+                                    toast(err_22.message, "err");
+                                    return [3 /*break*/, 5];
+                                case 5: return [2 /*return*/];
+                            }
+                        });
+                    }); };
+                    $("#remText", r).onsubmit = function (e) { return __awaiter(_this, void 0, void 0, function () {
+                        var err_23;
+                        return __generator(this, function (_d) {
+                            switch (_d.label) {
+                                case 0:
+                                    e.preventDefault();
+                                    _d.label = 1;
+                                case 1:
+                                    _d.trys.push([1, 3, , 4]);
+                                    return [4 /*yield*/, save(parseLines(e.target.t.value), "import", rerender)];
+                                case 2:
+                                    _d.sent();
+                                    return [3 /*break*/, 4];
+                                case 3:
+                                    err_23 = _d.sent();
+                                    toast(err_23.message, "err");
+                                    return [3 /*break*/, 4];
+                                case 4: return [2 /*return*/];
+                            }
+                        });
+                    }); };
+                }
+            });
+        }
+        var reminders = {
+            html: function () {
+                var all = rows().slice().sort(byDue), t = today(), open = all.filter(function (r) { return !r.done; }), done = all.filter(function (r) { return r.done; }).slice(-15).reverse();
+                var late = open.filter(function (r) { return r.due_date && r.due_date < t; }), now = open.filter(function (r) { return r.due_date === t; }), later = open.filter(function (r) { return r.due_date && r.due_date > t; }), none = open.filter(function (r) { return !r.due_date; });
+                var sec = function (h, l) { return l.length ? "<h4>".concat(h, "</h4>").concat(l.map(item).join("")) : ""; };
+                return "<div class=\"card glass\"><div class=\"sectionhead\"><h3 class=\"script\">Rappels</h3><span><button class=\"btn primary\" id=\"remAdd\">\uFF0B Nouveau rappel</button> <button class=\"btn\" id=\"remImp\">Importer</button></span></div>\n      ".concat(open.length ? sec("En retard", late) + sec("Aujourd\u2019hui", now) + sec("\xC0 venir", later) + sec("Sans date", none) : '<div class="empty">Aucun rappel. Ajoutez-en un ou importez ceux de votre agenda.</div>', "\n      ").concat(done.length ? "<h4>Termin\u00E9s</h4>".concat(done.map(item).join("")) : "", "</div>");
+            },
+            bind: function (root, rerender) {
+                var _this = this;
+                $("#remAdd", root).onclick = function () { return editor(null, rerender); };
+                $("#remImp", root).onclick = function () { return importDialog(rerender); };
+                $$("[data-redit]", root).forEach(function (b) { return b.onclick = function () { return editor(rows().find(function (x) { return x.id === b.dataset.redit; }), rerender); }; });
+                $$("[data-rdone]", root).forEach(function (b) { return b.onclick = function () { return __awaiter(_this, void 0, void 0, function () {
+                    var r, err_24;
+                    return __generator(this, function (_d) {
+                        switch (_d.label) {
+                            case 0:
+                                r = rows().find(function (x) { return x.id === b.dataset.rdone; });
+                                _d.label = 1;
+                            case 1:
+                                _d.trys.push([1, 3, , 4]);
+                                return [4 /*yield*/, complete(b.dataset.rdone, !r.done)];
+                            case 2:
+                                _d.sent();
+                                rerender();
+                                return [3 /*break*/, 4];
+                            case 3:
+                                err_24 = _d.sent();
+                                toast(err_24.message, "err");
+                                return [3 /*break*/, 4];
+                            case 4: return [2 /*return*/];
+                        }
+                    });
+                }); }; });
+            }
+        };
+        return { dueToday: dueToday, complete: complete, cardHTML: cardHTML, bindCard: bindCard, reminders: reminders };
+    })();
     __m.dashboard = (function () {
         var _d = __m.util, $ = _d.$, $$ = _d.$$, esc = _d.esc, toast = _d.toast, ymd = _d.ymd, fmtLong = _d.fmtLong, fmtTime = _d.fmtTime, PEOPLE = _d.PEOPLE;
         var db = __m.db;
         var nw = __m.news;
         var ics = __m.ics;
         var _e = __m.daily, saintOf = _e.saintOf, quoteOf = _e.quoteOf;
+        var rem = __m.reminders;
         var t = function (k) { return db.store.t[k]; };
         var pIndex = function (o) { return Math.max(0, PEOPLE.indexOf(o)); };
         var CITY_KEY = "family-city", WX_KEY = "family-weather";
@@ -6151,7 +6590,7 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
         var fnName = function () { return window.FN_LABELS || "wine-labels"; };
         function getJSON(url) {
             return __awaiter(this, void 0, void 0, function () {
-                var r, e_43, sb, _d, data, error;
+                var r, e_48, sb, _d, data, error;
                 return __generator(this, function (_e) {
                     switch (_e.label) {
                         case 0:
@@ -6167,7 +6606,7 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                         case 3: return [2 /*return*/, _e.sent()];
                         case 4: return [3 /*break*/, 6];
                         case 5:
-                            e_43 = _e.sent();
+                            e_48 = _e.sent();
                             return [3 /*break*/, 6];
                         case 6:
                             sb = db.store.sb;
@@ -6243,7 +6682,7 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
         }
         function loadWeather(force) {
             return __awaiter(this, void 0, void 0, function () {
-                var c, url, j, e_44;
+                var c, url, j, e_49;
                 return __generator(this, function (_d) {
                     switch (_d.label) {
                         case 0:
@@ -6268,8 +6707,8 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                             jset(WX_KEY, wx);
                             return [2 /*return*/, true];
                         case 3:
-                            e_44 = _d.sent();
-                            wxError = e_44.message || "erreur";
+                            e_49 = _d.sent();
+                            wxError = e_49.message || "erreur";
                             return [2 /*return*/, false];
                         case 4:
                             wxLoading = false;
@@ -6294,23 +6733,23 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                     hrs.push(i);
             });
             var rest = hrs.slice();
-            if (rest.length < 8)
+            if (rest.length < 24)
                 j.hourly.time.forEach(function (tm, i) {
-                    if (tm.slice(0, 10) > today && rest.length < 8)
+                    if (tm.slice(0, 10) > today && rest.length < 24)
                         rest.push(i);
                 });
             var k = KIND(cur.weather_code), dMax = Math.round(j.daily.temperature_2m_max[0]), dMin = Math.round(j.daily.temperature_2m_min[0]);
             var age = Math.round((Date.now() - wx.at) / 6e4);
             return "<div class=\"card glass wxcard\"><div class=\"wxhead\"><h3 class=\"script\">M\u00E9t\u00E9o \u00B7 ".concat(esc(c.name), "</h3><span class=\"grow\"></span><button class=\"btn small\" id=\"cityChange\">Changer de ville</button><button class=\"btn small\" id=\"wxRefresh\">Actualiser</button></div>\n    <div class=\"wxnow\">").concat(icon(k, 64), "<div><b class=\"wxtemp\">").concat(Math.round(cur.temperature_2m), "\u00B0</b><br><span>").concat(LABEL[k], " \u00B7 ressenti ").concat(Math.round(cur.apparent_temperature), "\u00B0 \u00B7 humidit\u00E9 ").concat(cur.relative_humidity_2m != null ? Math.round(cur.relative_humidity_2m) + " %" : "\u2014", " \u00B7 vent ").concat(Math.round(cur.wind_speed_10m), " km/h</span><br><small class=\"muted\">Min ").concat(dMin, "\u00B0 \u00B7 max ").concat(dMax, "\u00B0 \u00B7 pluie jusqu\u2019\u00E0 ").concat(j.daily.precipitation_probability_max[0] || 0, " % \u00B7 lever ").concat(esc(j.daily.sunrise[0].slice(11, 16)), " \u00B7 coucher ").concat(esc(j.daily.sunset[0].slice(11, 16)), "</small></div></div>\n    <div class=\"wxhours\">").concat(rest.map(function (i) {
                 var tm = j.hourly.time[i], kk = KIND(j.hourly.weather_code[i]);
-                return "<div class=\"wxh\"><small>".concat(tm.slice(0, 10) === today ? "" : "demain ").concat(parseInt(tm.slice(11, 13), 10), " h</small>").concat(icon(kk, 30), "<b>").concat(Math.round(j.hourly.temperature_2m[i]), "\u00B0</b><small class=\"muted\">").concat(j.hourly.precipitation_probability[i] || 0, " %</small></div>");
+                return "<div class=\"wxh\"><small>".concat(tm.slice(0, 10) === today ? "" : i === rest.filter(function (x) { return j.hourly.time[x].slice(0, 10) > today; })[0] ? "dem. " : "").concat(parseInt(tm.slice(11, 13), 10), " h</small>").concat(icon(kk, 30), "<b>").concat(Math.round(j.hourly.temperature_2m[i]), "\u00B0</b><small class=\"muted\">").concat(j.hourly.precipitation_probability[i] || 0, " %</small></div>");
             }).join(""), "</div>\n    <p class=\"muted small\">").concat(wxLoading ? "Mise \xE0 jour\u2026" : wxError ? esc("Mise \xE0 jour impossible (" + wxError + "), derni\xE8res donn\xE9es affich\xE9es.") : "Mis \xE0 jour il y a " + age + " min", " \u00B7 donn\u00E9es Open-Meteo</p></div>");
         }
         var Z = 7;
         var radarTry = 0, radar = null, radarErr = "", radarIdx = -1, radarTimer = null;
         function loadRadar() {
             return __awaiter(this, void 0, void 0, function () {
-                var j, past, e_45;
+                var j, past, e_50;
                 return __generator(this, function (_d) {
                     switch (_d.label) {
                         case 0:
@@ -6329,8 +6768,8 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                             radarIdx = radar.frames.length - 1;
                             return [2 /*return*/, true];
                         case 3:
-                            e_45 = _d.sent();
-                            radarErr = e_45.message || "erreur";
+                            e_50 = _d.sent();
+                            radarErr = e_50.message || "erreur";
                             radar = radar || null;
                             return [2 /*return*/, false];
                         case 4: return [2 /*return*/];
@@ -6362,7 +6801,7 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
         }
         function setFrame(i, first) {
             return __awaiter(this, void 0, void 0, function () {
-                var f, ims, urls, bases, res_1, e_46, t2;
+                var f, ims, urls, bases, res_1, e_51, t2;
                 return __generator(this, function (_d) {
                     switch (_d.label) {
                         case 0:
@@ -6388,7 +6827,7 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                             });
                             return [3 /*break*/, 4];
                         case 3:
-                            e_46 = _d.sent();
+                            e_51 = _d.sent();
                             return [3 /*break*/, 4];
                         case 4: return [3 /*break*/, 6];
                         case 5:
@@ -6409,7 +6848,7 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
         var pr = jget(PR_KEY), prTry = 0, prLoading = false;
         function loadPressure() {
             return __awaiter(this, void 0, void 0, function () {
-                var c, j, now, tm, out, i, e_47;
+                var c, j, now, tm, out, i, e_52;
                 return __generator(this, function (_d) {
                     switch (_d.label) {
                         case 0:
@@ -6436,7 +6875,7 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                             jset(PR_KEY, pr);
                             return [2 /*return*/, true];
                         case 3:
-                            e_47 = _d.sent();
+                            e_52 = _d.sent();
                             return [2 /*return*/, false];
                         case 4:
                             prLoading = false;
@@ -6467,8 +6906,11 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
             var now = /* @__PURE__ */ new Date(), day0 = new Date(now.getFullYear(), now.getMonth(), now.getDate()), day1 = new Date(day0.getTime() + 864e5);
             var xs = ics.externalEvents(day0, day1).map(function (o) { return ({ title: o.title, starts_at: o.start.toISOString(), owner: o.cal.name, allDay: o.allDay, color: o.cal.color }); });
             var evs = t("family_events").filter(function (e) { return e.starts_at && new Date(e.starts_at) >= day0 && new Date(e.starts_at) < day1; }).concat(xs).sort(function (a, b) { return a.starts_at.localeCompare(b.starts_at); });
-            var meals = t("meal_plans").filter(function (p) { return p.meal_date === ymd(now); }).sort(function (a, b) { return (a.meal_type === "midi" ? -1 : 1) - (b.meal_type === "midi" ? -1 : 1); });
-            return "<div class=\"card glass\"><h3 class=\"script\">Agenda du jour</h3>\n    ".concat(evs.map(function (e) { return "<div class=\"row\"><span class=\"dot p".concat(pIndex(e.owner), "\" ").concat(e.color ? "style=\"background:".concat(e.color, "\"") : "", "></span><span class=\"grow\"><b>").concat(esc(e.title), "</b>").concat(e.owner ? " <small class=\"muted\">".concat(esc(e.owner), "</small>") : "", "<br><small>").concat(e.allDay ? "Journ\xE9e" : esc(fmtTime(e.starts_at))).concat(e.notes ? " \xB7 " + esc(String(e.notes).slice(0, 60)) : "", "</small></span></div>"); }).join("") || '<p class="muted">Aucun rendez-vous aujourd\u2019hui.</p>', "\n    ").concat(meals.length ? '<h4 class="subh">\xC0 table</h4>' + meals.map(function (m) { return "<div class=\"row\"><span class=\"chip\">".concat(m.meal_type === "midi" ? "D\xE9jeuner" : "D\xEEner", "</span><b class=\"grow\">").concat(esc(m.title || ""), "</b></div>"); }).join("") : "", "\n    <button class=\"btn small\" data-go=\"agenda\">Ouvrir l\u2019agenda</button></div>");
+            return "<div class=\"card glass\"><h3 class=\"script\">Agenda du jour</h3>\n    ".concat(evs.map(function (e) { return "<div class=\"row\"><span class=\"dot p".concat(pIndex(e.owner), "\" ").concat(e.color ? "style=\"background:".concat(e.color, "\"") : "", "></span><span class=\"grow\"><b>").concat(esc(e.title), "</b>").concat(e.owner ? " <small class=\"muted\">".concat(esc(e.owner), "</small>") : "", "<br><small>").concat(e.allDay ? "Journ\xE9e" : esc(fmtTime(e.starts_at))).concat(e.notes ? " \xB7 " + esc(String(e.notes).slice(0, 60)) : "", "</small></span></div>"); }).join("") || '<p class="muted">Aucun rendez-vous aujourd\u2019hui.</p>', "\n    <button class=\"btn small\" data-go=\"agenda\">Ouvrir l\u2019agenda</button></div>");
+        }
+        function mealsHTML() {
+            var key = ymd(/* @__PURE__ */ new Date()), meals = t("meal_plans").filter(function (p) { return p.meal_date === key; }).sort(function (a, b) { return (a.meal_type === "midi" ? -1 : 1) - (b.meal_type === "midi" ? -1 : 1); });
+            return "<div class=\"card glass\"><h3 class=\"script\">Au menu aujourd\u2019hui</h3>\n    ".concat(meals.map(function (m) { return "<div class=\"row\"><span class=\"chip\">".concat(m.meal_type === "midi" ? "Midi" : "Soir", "</span><span class=\"grow\"><b>").concat(esc(m.title || ""), "</b></span></div>"); }).join("") || '<p class="muted">Rien de pr\xE9vu au planning.</p>', "\n    <button class=\"btn small\" data-go=\"menus\">Planning de la semaine</button></div>");
         }
         function newsHTML() {
             var c = nw.read(), list = c && c.sections && c.sections["\xC0 la une"] || [];
@@ -6476,7 +6918,7 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
         }
         var dashboard = {
             html: function () {
-                return "<div class=\"dash\"><div class=\"dashwx\">".concat(weatherHTML(), "</div><div class=\"dashradar\">").concat(radarHTML(), "</div><div class=\"dashside\">").concat(dailyHTML()).concat(pressureHTML(), "<div class=\"grid2\"><div>").concat(agendaHTML(), "</div><div>").concat(newsHTML(), "</div></div></div></div>");
+                return "<div class=\"dash\"><div class=\"dashwx\">".concat(weatherHTML()).concat(pressureHTML(), "</div><div class=\"dashradar\">").concat(radarHTML()).concat(nw.radioCard("news", ["franceinfo"]), "</div><div class=\"dashside\">").concat(dailyHTML(), "<div class=\"grid2\"><div>").concat(mealsHTML(), "</div><div>").concat(rem.cardHTML(), "</div></div><div class=\"grid2\"><div>").concat(agendaHTML(), "</div><div>").concat(newsHTML(), "</div></div></div></div>");
             },
             bind: function (root, rerender, go) {
                 var _this = this;
@@ -6486,10 +6928,12 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                     window.scrollTo(0, y);
                 };
                 $$("[data-go]", root).forEach(function (b) { return b.onclick = function () { return go(b.dataset.go); }; });
+                nw.bindRadio(root);
+                rem.bindCard(root, redraw);
                 var form = $("#cityForm", root);
                 if (form) {
                     form.onsubmit = function (e) { return __awaiter(_this, void 0, void 0, function () {
-                        var q, err_20;
+                        var q, err_25;
                         return __generator(this, function (_d) {
                             switch (_d.label) {
                                 case 0:
@@ -6505,8 +6949,8 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                                     cityResults = _d.sent();
                                     return [3 /*break*/, 4];
                                 case 3:
-                                    err_20 = _d.sent();
-                                    toast("Recherche impossible : " + err_20.message, "err");
+                                    err_25 = _d.sent();
+                                    toast("Recherche impossible : " + err_25.message, "err");
                                     return [2 /*return*/];
                                 case 4:
                                     redraw();
@@ -6619,7 +7063,143 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
     __m.photos = (function () {
         var _d = __m.util, $ = _d.$, $$ = _d.$$, esc = _d.esc, toast = _d.toast, openModal = _d.openModal, closeModal = _d.closeModal, compressImage = _d.compressImage;
         var db = __m.db;
-        var t = function () { return db.store.t.family_photos || []; };
+        var ext = {}, extAt = 0, extBusy = false, extErr = {};
+        var linked = function () { return db.store.t.family_albums || []; };
+        var t = function () {
+            var l = (db.store.t.family_photos || []).slice();
+            linked().forEach(function (a) {
+                (ext[a.id] || []).forEach(function (x, i) { return l.push({ id: "x:" + a.id + ":" + i, url: x.u, thumb_url: x.t || x.u, album: a.name, taken_at: x.d || null, created_at: x.d || a.created_at, ext: true, uploader: a.kind === "icloud" ? "iCloud" : "Google Photos" }); });
+            });
+            return l;
+        };
+        function loadExt(force) {
+            return __awaiter(this, void 0, void 0, function () {
+                var changed, _d, _e, a, _f, data, error, e_53, e_54_1;
+                var e_54, _g;
+                return __generator(this, function (_h) {
+                    switch (_h.label) {
+                        case 0:
+                            if (extBusy || !linked().length || !db.store.sb)
+                                return [2 /*return*/, false];
+                            if (!force && Date.now() - extAt < 20 * 60 * 1e3 && Object.keys(ext).length)
+                                return [2 /*return*/, false];
+                            extBusy = true;
+                            extAt = Date.now();
+                            changed = false;
+                            _h.label = 1;
+                        case 1:
+                            _h.trys.push([1, 8, 9, 10]);
+                            _d = __values(linked()), _e = _d.next();
+                            _h.label = 2;
+                        case 2:
+                            if (!!_e.done) return [3 /*break*/, 7];
+                            a = _e.value;
+                            _h.label = 3;
+                        case 3:
+                            _h.trys.push([3, 5, , 6]);
+                            return [4 /*yield*/, db.store.sb.functions.invoke(window.FN_LABELS || "wine-labels", { body: { album: a.url } })];
+                        case 4:
+                            _f = _h.sent(), data = _f.data, error = _f.error;
+                            if (error || !data)
+                                throw new Error(error && error.message || "r\xE9ponse vide");
+                            if (data.error)
+                                throw new Error(data.error);
+                            ext[a.id] = data.photos || [];
+                            delete extErr[a.id];
+                            changed = true;
+                            return [3 /*break*/, 6];
+                        case 5:
+                            e_53 = _h.sent();
+                            extErr[a.id] = e_53.message || String(e_53);
+                            return [3 /*break*/, 6];
+                        case 6:
+                            _e = _d.next();
+                            return [3 /*break*/, 2];
+                        case 7: return [3 /*break*/, 10];
+                        case 8:
+                            e_54_1 = _h.sent();
+                            e_54 = { error: e_54_1 };
+                            return [3 /*break*/, 10];
+                        case 9:
+                            try {
+                                if (_e && !_e.done && (_g = _d.return)) _g.call(_d);
+                            }
+                            finally { if (e_54) throw e_54.error; }
+                            return [7 /*endfinally*/];
+                        case 10:
+                            extBusy = false;
+                            return [2 /*return*/, changed];
+                    }
+                });
+            });
+        }
+        function albumsDialog(rerender) {
+            var _this = this;
+            var body = function () { return "<h2 class=\"script\">Albums Google Photos / iCloud</h2>\n    <p class=\"muted small\">Dans Google Photos ou Photos (iCloud), partagez un album puis copiez son lien de partage (Google : \u00AB Partager \u203A Cr\u00E9er un lien \u00BB ; Apple : \u00AB Partager \u203A Lien iCloud \u00BB / \u00AB Site web public \u00BB). Les nouvelles photos ajout\u00E9es \u00E0 l\u2019album apparaissent ensuite ici automatiquement. Les photos restent chez Google ou Apple.</p>\n    ".concat(linked().map(function (a) { return "<div class=\"row\"><span class=\"grow\"><b>".concat(esc(a.name), "</b> <small class=\"muted\">").concat(a.kind === "icloud" ? "iCloud" : "Google Photos", " \u00B7 ").concat((ext[a.id] || []).length, " photo").concat((ext[a.id] || []).length > 1 ? "s" : "", "</small>").concat(extErr[a.id] ? "<br><small class=\"err\">".concat(esc(extErr[a.id]), "</small>") : "", "</span><button class=\"btn small\" data-adel=\"").concat(a.id, "\">Retirer</button></div>"); }).join("") || '<p class="muted">Aucun album li\xE9.</p>', "\n    <form id=\"albForm\" class=\"stack\"><label class=\"field\"><span>Nom</span><input name=\"name\" placeholder=\"Ex. Vacances d\u2019\u00E9t\u00E9\" required></label>\n    <label class=\"field\"><span>Lien de partage</span><input name=\"url\" placeholder=\"https://photos.app.goo.gl/\u2026 ou https://www.icloud.com/sharedalbum/#\u2026\" required></label><button class=\"btn primary\" type=\"submit\">Lier cet album</button></form>\n    <div class=\"formactions\"><button class=\"btn\" id=\"albRefresh\">Actualiser</button><span class=\"grow\"></span><button class=\"btn\" data-close>Fermer</button></div>"); };
+            var mount = function (r) {
+                $("[data-close]", r).onclick = function () {
+                    closeModal();
+                    rerender();
+                };
+                $$("[data-adel]", r).forEach(function (b) { return b.onclick = function () { return __awaiter(_this, void 0, void 0, function () {
+                    return __generator(this, function (_d) {
+                        switch (_d.label) {
+                            case 0: return [4 /*yield*/, db.del("family_albums", b.dataset.adel)];
+                            case 1:
+                                _d.sent();
+                                delete ext[b.dataset.adel];
+                                openModal(body(), { onMount: mount });
+                                return [2 /*return*/];
+                        }
+                    });
+                }); }; });
+                $("#albRefresh", r).onclick = function (e) { return __awaiter(_this, void 0, void 0, function () {
+                    return __generator(this, function (_d) {
+                        switch (_d.label) {
+                            case 0:
+                                e.target.disabled = true;
+                                e.target.textContent = "Chargement\u2026";
+                                return [4 /*yield*/, loadExt(true)];
+                            case 1:
+                                _d.sent();
+                                openModal(body(), { onMount: mount });
+                                return [2 /*return*/];
+                        }
+                    });
+                }); };
+                $("#albForm", r).onsubmit = function (e) { return __awaiter(_this, void 0, void 0, function () {
+                    var f, u, kind, err_26, b;
+                    return __generator(this, function (_d) {
+                        switch (_d.label) {
+                            case 0:
+                                e.preventDefault();
+                                f = e.target, u = f.url.value.trim(), kind = /icloud\.com/i.test(u) ? "icloud" : "google";
+                                _d.label = 1;
+                            case 1:
+                                _d.trys.push([1, 3, , 4]);
+                                return [4 /*yield*/, db.add("family_albums", { name: f.name.value.trim(), url: u, kind: kind })];
+                            case 2:
+                                _d.sent();
+                                return [3 /*break*/, 4];
+                            case 3:
+                                err_26 = _d.sent();
+                                toast(/family_albums|relation|schema/i.test(err_26.message) ? "Ex\xE9cutez 006_calendars_reminders.sql dans Supabase" : err_26.message, "err");
+                                return [2 /*return*/];
+                            case 4:
+                                b = f.querySelector("button");
+                                b.disabled = true;
+                                b.textContent = "Chargement\u2026";
+                                return [4 /*yield*/, loadExt(true)];
+                            case 5:
+                                _d.sent();
+                                openModal(body(), { onMount: mount });
+                                return [2 /*return*/];
+                        }
+                    });
+                }); };
+            };
+            openModal(body(), { wide: true, onMount: mount });
+        }
         var album = "", limit = 60;
         var MARK = "/object/public/photos/";
         var pathOf = function (u) {
@@ -6653,7 +7233,7 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                 });
                 if (last)
                     body += "</div>";
-                return "<div class=\"card glass accent\"><b>Photos de la famille.</b> Chacun envoie ses photos depuis son t\u00E9l\u00E9phone : le s\u00E9lecteur propose la phototh\u00E8que (Apple Photos, Google Photos, appareil photo\u2026). Elles sont ensuite visibles sur tous vos appareils.</div>\n      <div class=\"bar\"><input id=\"palbum\" list=\"palbums\" placeholder=\"Album (ex. Vacances)\" value=\"".concat(esc(album || ""), "\" aria-label=\"Album d\u2019envoi\"><datalist id=\"palbums\">").concat(names.map(function (n) { return "<option value=\"".concat(esc(n), "\">"); }).join(""), "</datalist>\n        <button class=\"btn\" id=\"pshow\">Diaporama</button><label class=\"btn primary filebtn\">\uFF0B Ajouter des photos<input type=\"file\" id=\"pfiles\" accept=\"image/*\" multiple hidden></label></div>\n      <div class=\"chips\"><button class=\"chip ").concat(!album ? "on" : "", "\" data-alb=\"\">Toutes (").concat(t().length, ")</button>").concat(names.map(function (n) { return "<button class=\"chip ".concat(album === n ? "on" : "", "\" data-alb=\"").concat(esc(n), "\">").concat(esc(n), " (").concat(al[n], ")</button>"); }).join(""), "</div>\n      ").concat(body || '<div class="empty">Aucune photo pour le moment.</div>', "\n      ").concat(list.length > limit ? "<p style=\"text-align:center\"><button class=\"btn\" id=\"pmore\">Afficher plus (".concat(list.length - limit, ")</button></p>") : "", "\n      <p class=\"muted small\">Stockage gratuit Supabase (1 Go) : les photos sont r\u00E9duites \u00E0 1600 px pour en garder beaucoup.</p>");
+                return "<div class=\"card glass accent\"><b>Photos de la famille.</b> Chacun envoie ses photos depuis son t\u00E9l\u00E9phone : le s\u00E9lecteur propose la phototh\u00E8que (Apple Photos, Google Photos, appareil photo\u2026). Elles sont ensuite visibles sur tous vos appareils.</div>\n      <div class=\"bar\"><input id=\"palbum\" list=\"palbums\" placeholder=\"Album (ex. Vacances)\" value=\"".concat(esc(album || ""), "\" aria-label=\"Album d\u2019envoi\"><datalist id=\"palbums\">").concat(names.map(function (n) { return "<option value=\"".concat(esc(n), "\">"); }).join(""), "</datalist>\n        <button class=\"btn\" id=\"palink\">Albums Google / Apple</button><button class=\"btn\" id=\"pshow\">Diaporama</button><label class=\"btn primary filebtn\">\uFF0B Ajouter des photos<input type=\"file\" id=\"pfiles\" accept=\"image/*\" multiple hidden></label></div>\n      <div class=\"chips\"><button class=\"chip ").concat(!album ? "on" : "", "\" data-alb=\"\">Toutes (").concat(t().length, ")</button>").concat(names.map(function (n) { return "<button class=\"chip ".concat(album === n ? "on" : "", "\" data-alb=\"").concat(esc(n), "\">").concat(esc(n), " (").concat(al[n], ")</button>"); }).join(""), "</div>\n      ").concat(body || '<div class="empty">Aucune photo pour le moment.</div>', "\n      ").concat(list.length > limit ? "<p style=\"text-align:center\"><button class=\"btn\" id=\"pmore\">Afficher plus (".concat(list.length - limit, ")</button></p>") : "", "\n      <p class=\"muted small\">Stockage gratuit Supabase (1 Go) : les photos sont r\u00E9duites \u00E0 1600 px pour en garder beaucoup.</p>");
             },
             bind: function (root, rerender) {
                 var _this = this;
@@ -6670,8 +7250,13 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                     };
                 $$("[data-ph]", root).forEach(function (b) { return b.onclick = function () { return viewer(b.dataset.ph, rerender); }; });
                 $("#pshow", root).onclick = function () { return slideDialog(); };
+                $("#palink", root).onclick = function () { return albumsDialog(rerender); };
+                loadExt(false).then(function (ch) {
+                    if (ch && document.getElementById("palink") && !document.getElementById("dlg").hasAttribute("open"))
+                        rerender();
+                });
                 $("#pfiles", root).onchange = function (e) { return __awaiter(_this, void 0, void 0, function () {
-                    var files, alb, ok, fail, i, big, thumb, url, turl, err_21;
+                    var files, alb, ok, fail, i, big, thumb, url, turl, err_27;
                     return __generator(this, function (_d) {
                         switch (_d.label) {
                             case 0:
@@ -6707,8 +7292,8 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                                 ok++;
                                 return [3 /*break*/, 9];
                             case 8:
-                                err_21 = _d.sent();
-                                fail = err_21.message || String(err_21);
+                                err_27 = _d.sent();
+                                fail = err_27.message || String(err_27);
                                 return [3 /*break*/, 9];
                             case 9:
                                 i++;
@@ -6731,7 +7316,7 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                 return;
             var draw = function () {
                 var p = list[i];
-                openModal("<div class=\"detail pview\"><div class=\"pimg\"><img src=\"".concat(esc(p.url), "\" alt=\"").concat(esc(p.caption || ""), "\"></div>\n      <div class=\"pnav\"><button class=\"btn\" id=\"pprev\" ").concat(i === 0 ? "disabled" : "", ">\u2039</button><span class=\"grow muted small\">").concat(i + 1, " / ").concat(list.length, " \u00B7 ").concat(esc(monthLabel(p.taken_at || p.created_at))).concat(p.uploader ? " \xB7 " + esc(p.uploader) : "", "</span><button class=\"btn\" id=\"pnext\" ").concat(i === list.length - 1 ? "disabled" : "", ">\u203A</button></div>\n      <label class=\"field\"><span>L\u00E9gende</span><input id=\"pcap\" value=\"").concat(esc(p.caption || ""), "\" maxlength=\"200\"></label>\n      <label class=\"field\"><span>Album</span><input id=\"palb\" value=\"").concat(esc(p.album || "Vrac"), "\" maxlength=\"60\"></label>\n      <div class=\"formactions wrap\"><a class=\"btn\" href=\"").concat(esc(p.url), "\" target=\"_blank\" rel=\"noopener\">Ouvrir / enregistrer</a><button class=\"btn danger\" id=\"pdel\">Supprimer</button><span class=\"grow\"></span><button class=\"btn\" id=\"psave\">Enregistrer</button><button class=\"btn ghost\" data-close>Fermer</button></div></div>"), {
+                openModal("<div class=\"detail pview\"><div class=\"pimg\"><img src=\"".concat(esc(p.url), "\" alt=\"").concat(esc(p.caption || ""), "\"></div>\n      <div class=\"pnav\"><button class=\"btn\" id=\"pprev\" ").concat(i === 0 ? "disabled" : "", ">\u2039</button><span class=\"grow muted small\">").concat(i + 1, " / ").concat(list.length, " \u00B7 ").concat(esc(monthLabel(p.taken_at || p.created_at))).concat(p.uploader ? " \xB7 " + esc(p.uploader) : "", "</span><button class=\"btn\" id=\"pnext\" ").concat(i === list.length - 1 ? "disabled" : "", ">\u203A</button></div>\n      ").concat(p.ext ? "" : "<label class=\"field\"><span>L\u00E9gende</span><input id=\"pcap\" value=\"".concat(esc(p.caption || ""), "\" maxlength=\"200\"></label>\n      <label class=\"field\"><span>Album</span><input id=\"palb\" value=\"").concat(esc(p.album || "Vrac"), "\" maxlength=\"60\"></label>"), "\n      <div class=\"formactions wrap\"><a class=\"btn\" href=\"").concat(esc(p.url), "\" target=\"_blank\" rel=\"noopener\">Ouvrir / enregistrer</a>").concat(p.ext ? "" : '<button class="btn danger" id="pdel">Supprimer</button><span class="grow"></span><button class="btn" id="psave">Enregistrer</button>', "<button class=\"btn ghost\" data-close>Fermer</button></div></div>"), {
                     wide: true,
                     onMount: function (r) {
                         $("[data-close]", r).onclick = function () {
@@ -6746,53 +7331,55 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                             i++;
                             draw();
                         };
-                        $("#psave", r).onclick = function () { return __awaiter(_this, void 0, void 0, function () {
-                            var err_22;
-                            return __generator(this, function (_d) {
-                                switch (_d.label) {
-                                    case 0:
-                                        _d.trys.push([0, 2, , 3]);
-                                        return [4 /*yield*/, db.patch("family_photos", p.id, { caption: $("#pcap", r).value.trim(), album: $("#palb", r).value.trim() || "Vrac" })];
-                                    case 1:
-                                        _d.sent();
-                                        toast("Enregistr\xE9");
-                                        return [3 /*break*/, 3];
-                                    case 2:
-                                        err_22 = _d.sent();
-                                        toast(err_22.message, "err");
-                                        return [3 /*break*/, 3];
-                                    case 3: return [2 /*return*/];
-                                }
-                            });
-                        }); };
-                        $("#pdel", r).onclick = function () { return __awaiter(_this, void 0, void 0, function () {
-                            var paths, err_23;
-                            return __generator(this, function (_d) {
-                                switch (_d.label) {
-                                    case 0:
-                                        if (!window.confirm("Supprimer cette photo pour toute la famille ?"))
-                                            return [2 /*return*/];
-                                        _d.label = 1;
-                                    case 1:
-                                        _d.trys.push([1, 3, , 4]);
-                                        return [4 /*yield*/, db.del("family_photos", p.id)];
-                                    case 2:
-                                        _d.sent();
-                                        paths = [p.path, p.thumb_path].filter(Boolean);
-                                        if (paths.length)
-                                            db.store.sb.storage.from("photos").remove(paths).then(null, function () {
-                                            });
-                                        closeModal();
-                                        rerender();
-                                        return [3 /*break*/, 4];
-                                    case 3:
-                                        err_23 = _d.sent();
-                                        toast(err_23.message, "err");
-                                        return [3 /*break*/, 4];
-                                    case 4: return [2 /*return*/];
-                                }
-                            });
-                        }); };
+                        if ($("#psave", r))
+                            $("#psave", r).onclick = function () { return __awaiter(_this, void 0, void 0, function () {
+                                var err_28;
+                                return __generator(this, function (_d) {
+                                    switch (_d.label) {
+                                        case 0:
+                                            _d.trys.push([0, 2, , 3]);
+                                            return [4 /*yield*/, db.patch("family_photos", p.id, { caption: $("#pcap", r).value.trim(), album: $("#palb", r).value.trim() || "Vrac" })];
+                                        case 1:
+                                            _d.sent();
+                                            toast("Enregistr\xE9");
+                                            return [3 /*break*/, 3];
+                                        case 2:
+                                            err_28 = _d.sent();
+                                            toast(err_28.message, "err");
+                                            return [3 /*break*/, 3];
+                                        case 3: return [2 /*return*/];
+                                    }
+                                });
+                            }); };
+                        if ($("#pdel", r))
+                            $("#pdel", r).onclick = function () { return __awaiter(_this, void 0, void 0, function () {
+                                var paths, err_29;
+                                return __generator(this, function (_d) {
+                                    switch (_d.label) {
+                                        case 0:
+                                            if (!window.confirm("Supprimer cette photo pour toute la famille ?"))
+                                                return [2 /*return*/];
+                                            _d.label = 1;
+                                        case 1:
+                                            _d.trys.push([1, 3, , 4]);
+                                            return [4 /*yield*/, db.del("family_photos", p.id)];
+                                        case 2:
+                                            _d.sent();
+                                            paths = [p.path, p.thumb_path].filter(Boolean);
+                                            if (paths.length)
+                                                db.store.sb.storage.from("photos").remove(paths).then(null, function () {
+                                                });
+                                            closeModal();
+                                            rerender();
+                                            return [3 /*break*/, 4];
+                                        case 3:
+                                            err_29 = _d.sent();
+                                            toast(err_29.message, "err");
+                                            return [3 /*break*/, 4];
+                                        case 4: return [2 /*return*/];
+                                    }
+                                });
+                            }); };
                     }
                 });
             };
@@ -6957,7 +7544,7 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
             ["cellar", "Cave \xE0 vin", "cave", "#f1a7a0", "#ee7f72"],
             ["agenda", "Calendrier", "agenda", "#fcf0c8", "#f6cd8b"],
             ["news", "Actualit\xE9", "news", "#d6e9f8", "#9ec8e8"],
-            ["homebook", "Maison", "maison", "#cfe8e0", "#8fc5b5"],
+            ["reminders", "Rappels", "agenda", "#cfe8e0", "#8fc5b5"],
             ["music", "Playlists", "playlists", "#e1dcf6", "#aeb0ee"]
         ];
         var home = {
@@ -7046,10 +7633,17 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                     closeModal();
                     rerender();
                 };
-                $$("[data-del]", r).forEach(function (b) { return b.onclick = function () {
-                    ics.removeCalendar(b.dataset.del);
-                    redraw(r);
-                }; });
+                $$("[data-del]", r).forEach(function (b) { return b.onclick = function () { return __awaiter(_this, void 0, void 0, function () {
+                    return __generator(this, function (_d) {
+                        switch (_d.label) {
+                            case 0: return [4 /*yield*/, ics.removeCalendar(b.dataset.del)];
+                            case 1:
+                                _d.sent();
+                                redraw(r);
+                                return [2 /*return*/];
+                        }
+                    });
+                }); }; });
                 $("#calForm", r).onsubmit = function (e) { return __awaiter(_this, void 0, void 0, function () {
                     var f, btn;
                     return __generator(this, function (_d) {
@@ -7057,12 +7651,14 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                             case 0:
                                 e.preventDefault();
                                 f = e.target;
-                                ics.addCalendar(f.name.value.trim(), f.url.value);
                                 btn = f.querySelector("button");
                                 btn.disabled = true;
                                 btn.textContent = "Chargement\u2026";
-                                return [4 /*yield*/, ics.refreshAll(true)];
+                                return [4 /*yield*/, ics.addCalendar(f.name.value.trim(), f.url.value)];
                             case 1:
+                                _d.sent();
+                                return [4 /*yield*/, ics.refreshAll(true)];
+                            case 2:
                                 _d.sent();
                                 redraw(r);
                                 return [2 /*return*/];
@@ -7070,7 +7666,7 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                     });
                 }); };
                 $("#icsFile", r).onchange = function (e) { return __awaiter(_this, void 0, void 0, function () {
-                    var file, text, from, to, rows, err_24;
+                    var file, text, from, to, rows, err_30;
                     return __generator(this, function (_d) {
                         switch (_d.label) {
                             case 0:
@@ -7100,8 +7696,8 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                                 rerender();
                                 return [3 /*break*/, 5];
                             case 4:
-                                err_24 = _d.sent();
-                                toast("Import impossible : " + err_24.message, "err");
+                                err_30 = _d.sent();
+                                toast("Import impossible : " + err_30.message, "err");
                                 return [3 /*break*/, 5];
                             case 5: return [2 /*return*/];
                         }
@@ -7216,7 +7812,7 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                         fields: [{ name: "title", label: "Nom", required: true, full: true }, { name: "spotify_url", label: "Lien Spotify ou YouTube", required: true, full: true, placeholder: "https://open.spotify.com/playlist/\u2026 ou https://www.youtube.com/watch?v=\u2026", hint: "Spotify : \u22EF \u203A Partager \u203A Copier le lien. YouTube : Partager \u203A Copier le lien (vid\xE9o ou playlist)." }, { name: "owner", label: "\xC0 qui", type: "select", options: PEOPLE }],
                         danger: p.id ? { label: "Supprimer", confirm: "Supprimer cette playlist ?", run: function () { return db.del("playlists", p.id); } } : null,
                         onSubmit: function (v) { return __awaiter(_this, void 0, void 0, function () {
-                            var i, save, e_48, row;
+                            var i, save, e_55, row;
                             return __generator(this, function (_d) {
                                 switch (_d.label) {
                                     case 0:
@@ -7233,15 +7829,15 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                                         _d.sent();
                                         return [3 /*break*/, 7];
                                     case 3:
-                                        e_48 = _d.sent();
-                                        if (!/owner/i.test(e_48.message || "")) return [3 /*break*/, 5];
+                                        e_55 = _d.sent();
+                                        if (!/owner/i.test(e_55.message || "")) return [3 /*break*/, 5];
                                         row = __spreadValues({}, v);
                                         delete row.owner;
                                         return [4 /*yield*/, save(row)];
                                     case 4:
                                         _d.sent();
                                         return [3 /*break*/, 6];
-                                    case 5: throw e_48;
+                                    case 5: throw e_55;
                                     case 6: return [3 /*break*/, 7];
                                     case 7: return [2 /*return*/];
                                 }
@@ -7316,12 +7912,13 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
         var menus = __m.menus;
         var courses = __m.courses;
         var _e = __m.news, news = _e.news, stopReading = _e.stopReading;
-        var _f = __m.misc, home = _f.home, agenda = _f.agenda, music = _f.music, homebook = _f.homebook;
+        var _f = __m.misc, home = _f.home, agenda = _f.agenda, music = _f.music;
+        var reminders = __m.reminders.reminders;
         var dashboard = __m.dashboard.dashboard;
         var photos = __m.photos.photos;
         var PAGES = {
             home: { icon: "", label: "Accueil", title: "Bonjour \xE0 tous", mod: home, tables: ["meal_plans", "family_events", "shopping_items", "recipes", "cellar_items"] },
-            dashboard: { icon: "", label: "Tableau de bord", title: "Le tableau de bord", mod: dashboard, tables: ["family_events", "meal_plans"] },
+            dashboard: { icon: "", label: "Tableau de bord", title: "Le tableau de bord", mod: dashboard, tables: ["family_events", "meal_plans", "family_reminders", "family_calendars"] },
             recipes: { icon: "", label: "Recettes", title: "Le carnet de recettes", mod: recipes, tables: ["recipes"] },
             menus: { icon: "", label: "Planning de la semaine", title: "Le planning des repas", mod: menus, tables: ["meal_plans", "recipes"] },
             courses: { icon: "", label: "Liste de courses", title: "La liste de courses", mod: courses, tables: ["shopping_items"] },
@@ -7329,7 +7926,7 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
             photos: { icon: "", label: "Photos", title: "Les photos", mod: photos, tables: ["family_photos"] },
             agenda: { icon: "", label: "Agenda", title: "L\u2019agenda familial", mod: agenda, tables: ["family_events"] },
             news: { icon: "", label: "Actualit\xE9s", title: "L\u2019actualit\xE9 du jour", mod: news, tables: [] },
-            homebook: { icon: "", label: "Maison", title: "La maison", mod: homebook, tables: ["family_notes"] },
+            reminders: { icon: "", label: "Rappels", title: "Les rappels", mod: reminders, tables: ["family_reminders"] },
             music: { icon: "", label: "Playlists", title: "Nos playlists", mod: music, tables: ["playlists", "family_tracks"] }
         };
         var page = "home";
@@ -7366,8 +7963,13 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                 $("#subheading").textContent = "";
             }
             $("#floatnav").classList.toggle("onhome", page === "home");
-            root.innerHTML = P.mod.html();
-            P.mod.bind(root, render, go);
+            try {
+                root.innerHTML = P.mod.html();
+                P.mod.bind(root, render, go);
+            }
+            catch (err) {
+                root.innerHTML = '<div class="card glass warn"><h3>Cette page n\u2019a pas pu s\u2019afficher</h3><p>' + String(err && err.message || err).replace(/[<>&]/g, " ") + '</p><p class="muted small">' + String(err && err.stack || "").split("\n").slice(0, 3).join(" | ").replace(/[<>&]/g, " ") + "</p></div>";
+            }
         }
         var renderTimer;
         function scheduleRender(table) {
@@ -7403,7 +8005,7 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
         }
         function enter(user) {
             return __awaiter(this, void 0, void 0, function () {
-                var e_49, missing;
+                var e_56, missing;
                 return __generator(this, function (_d) {
                     switch (_d.label) {
                         case 0:
@@ -7429,10 +8031,10 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                             db.startRealtime();
                             return [3 /*break*/, 5];
                         case 4:
-                            e_49 = _d.sent();
-                            console.error(e_49);
-                            missing = /relation|does not exist|schema cache|permission|42P01|PGRST/i.test(e_49.message || "");
-                            $("#banner").innerHTML = "<div class=\"card glass warn\"><b>Impossible de charger les donn\u00E9es.</b> ".concat(missing ? "Les tables ne sont pas pr\xEAtes : ex\xE9cutez <code>supabase/002_family_sync.sql</code> dans le SQL Editor de Supabase." : esc(e_49.message || ""), "</div>");
+                            e_56 = _d.sent();
+                            console.error(e_56);
+                            missing = /relation|does not exist|schema cache|permission|42P01|PGRST/i.test(e_56.message || "");
+                            $("#banner").innerHTML = "<div class=\"card glass warn\"><b>Impossible de charger les donn\u00E9es.</b> ".concat(missing ? "Les tables ne sont pas pr\xEAtes : ex\xE9cutez <code>supabase/002_family_sync.sql</code> dans le SQL Editor de Supabase." : esc(e_56.message || ""), "</div>");
                             db.startRealtime();
                             return [3 /*break*/, 5];
                         case 5: return [2 /*return*/];
