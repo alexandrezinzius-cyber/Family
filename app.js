@@ -4189,7 +4189,7 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                     $("[data-close]", root).onclick = closeModal;
                     $("#onlyMissing", root).onchange = function (e) { return $$(".prow2", root).forEach(function (r) { return r.classList.toggle("hidden", e.target.checked && r.dataset.has === "1"); }); };
                     $("#vivPrices", root).onclick = function (e) { return __awaiter(_this, void 0, void 0, function () {
-                        var btn, st, only, todo, ok, fail, last, src, i, part, _d, data, error, _loop_9, _e, _f, r, x_6;
+                        var btn, st, only, todo, ok, fail, last, src, i, part, _d, data, error, _loop_9, _e, _f, r, x_6, cnt_1;
                         var e_30, _g;
                         return __generator(this, function (_h) {
                             switch (_h.label) {
@@ -4258,6 +4258,20 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                                     return [3 /*break*/, 1];
                                 case 6:
                                     btn.disabled = false;
+                                    {
+                                        cnt_1 = {};
+                                        $$("input.found", root).forEach(function (x) {
+                                            cnt_1[x.value] = (cnt_1[x.value] || 0) + 1;
+                                        });
+                                        $$("input.found", root).forEach(function (x) {
+                                            if (cnt_1[x.value] >= 4) {
+                                                x.value = "";
+                                                x.classList.remove("found");
+                                                ok--;
+                                                fail++;
+                                            }
+                                        });
+                                    }
                                     st.textContent = "".concat(ok, " prix trouv\u00E9").concat(ok > 1 ? "s" : "", " (").concat(Object.keys(src).map(function (k) { return src[k] + " " + k; }).join(", ") || "aucun", ")").concat(fail ? ", ".concat(fail, " introuvable").concat(fail > 1 ? "s" : "").concat(last ? " (" + last.slice(0, 90) + ")" : "") : "", ". V\u00E9rifiez puis cliquez sur \u00AB Enregistrer les prix \u00BB.");
                                     return [2 /*return*/];
                             }
@@ -5578,7 +5592,7 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
             ["nostalgie", "Nostalgie", "https://streaming.nrjaudio.fm/oug7girb92oc", "https://www.nostalgie.fr/", "music"],
             ["cheriefm", "Ch\xE9rie FM", "https://streaming.nrjaudio.fm/ou2n2epw5hs7", "https://www.cheriefm.fr/", "music"]
         ];
-        var radioEl = null, radioKey = "", radioState = "", radioHttp = false, radioErr = 0;
+        var radioEl = null, radioKey = "", radioState = "", radioStep = 0, radioUrl = "", radioErr = 0;
         var radioUi = function () {
             $$(".radiobtn").forEach(function (b) {
                 var on = b.dataset.radio === radioKey;
@@ -5614,9 +5628,19 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                     };
                     radioEl.onerror = function () {
                         var u = radioEl.getAttribute("src") || "";
-                        if (/^https:/.test(u) && !radioHttp) {
-                            radioHttp = true;
+                        if (/^https:\/\/(icecast|streaming|rfm|mfm)\./.test(u) && radioStep === 0) {
+                            radioStep = 1;
                             radioEl.src = "http:" + u.slice(6);
+                            radioEl.load();
+                            var q = radioEl.play();
+                            if (q && q.catch)
+                                q.catch(function () {
+                                });
+                            return;
+                        }
+                        if (/^http:\/\//.test(u) && radioStep === 1 && window.SUPABASE_URL) {
+                            radioStep = 2;
+                            radioEl.src = window.SUPABASE_URL + "/functions/v1/" + (window.FN_LABELS || "wine-labels") + "?stream=" + encodeURIComponent(radioUrl);
                             radioEl.load();
                             var q = radioEl.play();
                             if (q && q.catch)
@@ -5627,6 +5651,15 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                         radioErr = radioEl.error ? radioEl.error.code : 0;
                         radioState = "err";
                         radioUi();
+                    };
+                    radioEl.onended = function () {
+                        if (radioStep === 2 && radioState !== "" && radioKey) {
+                            radioEl.load();
+                            var q = radioEl.play();
+                            if (q && q.catch)
+                                q.catch(function () {
+                                });
+                        }
                     };
                     radioEl.onwaiting = function () {
                         if (radioState === "play") {
@@ -5645,7 +5678,8 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                 stopReading();
                 radioKey = r[0];
                 radioState = "load";
-                radioHttp = false;
+                radioStep = 0;
+                radioUrl = r[2];
                 radioEl.src = r[2];
                 radioUi();
                 var pr = radioEl.play();

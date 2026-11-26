@@ -24,11 +24,23 @@ function imageFromHtml(html: string): string | null {
   return lbl ? abs(lbl[0]) : null;
 }
 
+const norm = (t: string) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+const STOP = new Set(['chateau', 'domaine', 'cuvee', 'de', 'du', 'des', 'la', 'le', 'les', 'et', 'en', 'the', 'rouge', 'blanc', 'rose', 'vin', 'wine', 'red', 'white']);
+// Choisit, parmi les liens /w/ de la page de recherche, celui dont le nom (slug) ressemble vraiment à la bouteille ; sinon null (pas de page au hasard)
 async function findPage(query: string): Promise<string | null> {
   const r = await get('https://www.vivino.com/search/wines?q=' + encodeURIComponent(query));
   if (!r.ok) return null;
-  const m = (await r.text()).match(/href=["'](\/(?:[a-z]{2}\/)?[^"']*\/w\/\d+[^"']*)["']/i);
-  return m ? 'https://www.vivino.com' + m[1] : null;
+  const html = await r.text();
+  const want = norm(query).split(' ').filter(w => w && !/^(19|20)\d\d$/.test(w));
+  const key = want.filter(w => !STOP.has(w)); if (!key.length) return null;
+  let best = '', bestScore = 0; const seen = new Set<string>();
+  for (const m of html.matchAll(/href=["'](\/(?:[a-z]{2}\/)?([^"'\/]*)\/w\/\d+[^"']*)["']/gi)) {
+    if (seen.has(m[1])) continue; seen.add(m[1]);
+    const slug = new Set(norm(m[2]).split(' '));
+    const hit = key.filter(w => slug.has(w)).length, score = hit / key.length;
+    if (score > bestScore) { bestScore = score; best = m[1]; }
+  }
+  return best && bestScore >= 0.6 ? 'https://www.vivino.com' + best : null;
 }
 
 async function labelFor(b: { id: string; url?: string; query?: string }) {
@@ -61,14 +73,9 @@ async function labelFor(b: { id: string; url?: string; query?: string }) {
 // ---- prix : lit le prix affiché sur la page Vivino de la bouteille (gratuit, sans clé)
 const plausible = (n: number) => Number.isFinite(n) && n >= 2 && n <= 20000;
 function priceFromHtml(html: string): number | null {
-  const pats: RegExp[] = [
-    /"lowPrice"\s*:\s*"?(\d+(?:[.,]\d+)?)/, /"price"\s*:\s*\{[^}]*?"amount"\s*:\s*(\d+(?:\.\d+)?)/, /"amount"\s*:\s*(\d+(?:\.\d+)?)\s*,\s*"currency"/,
-    /"price"\s*:\s*"?(\d+(?:[.,]\d+)?)"?\s*,\s*"priceCurrency"/, /"priceCurrency"[^}]{0,40}"price"\s*:\s*"?(\d+(?:[.,]\d+)?)/,
-    /property=["']product:price:amount["'][^>]+content=["'](\d+(?:[.,]\d+)?)/i, /"price"\s*:\s*(\d+(?:\.\d+)?)/,
-  ];
+  // uniquement des champs liés à CE vin (données structurées) ; pas de prix « au hasard » trouvé ailleurs dans la page
+  const pats: RegExp[] = [/"lowPrice"\s*:\s*"?(\d+(?:[.,]\d+)?)/, /property=["']product:price:amount["'][^>]+content=["'](\d+(?:[.,]\d+)?)/i, /"@type"\s*:\s*"Offer"[^}]{0,200}?"price"\s*:\s*"?(\d+(?:[.,]\d+)?)/];
   for (const re of pats) { const m = html.match(re); if (m) { const n = parseFloat(m[1].replace(',', '.')); if (plausible(n)) return Math.round(n * 100) / 100; } }
-  const t = html.match(/(\d{1,4}(?:[.,]\d{1,2})?)\s?€|€\s?(\d{1,4}(?:[.,]\d{1,2})?)/);
-  if (t) { const n = parseFloat((t[1] || t[2]).replace(',', '.')); if (plausible(n)) return Math.round(n * 100) / 100; }
   return null;
 }
 // ---- Wine-Searcher (2e source) : page de recherche « find/<mots>/<millésime> », prix moyen affiché (devise convertie en euros)
@@ -76,7 +83,7 @@ const FX: Record<string, number> = { EUR: 1, USD: 0.93, GBP: 1.17, CHF: 1.06 };
 function wsPrice(html: string): number | null {
   let cur = 'EUR'; const c = html.match(/"priceCurrency"\s*:\s*"([A-Z]{3})"/) || html.match(/Avg Price[^<]{0,80}?(USD|EUR|GBP|CHF|\$|€|£)/i);
   if (c) cur = ({ '$': 'USD', '€': 'EUR', '£': 'GBP' } as Record<string, string>)[c[1]] || c[1].toUpperCase();
-  const pats: RegExp[] = [/Avg Price[^0-9]{0,200}?(\d[\d.,]*)/i, /Prix moyen[^0-9]{0,200}?(\d[\d.,]*)/i, /"lowPrice"\s*:\s*"?(\d+(?:\.\d+)?)/, /"price"\s*:\s*"?(\d+(?:\.\d+)?)"?/];
+  const pats: RegExp[] = [/Avg Price[^0-9]{0,200}?(\d[\d.,]*)/i, /Prix moyen[^0-9]{0,200}?(\d[\d.,]*)/i, /"lowPrice"\s*:\s*"?(\d+(?:\.\d+)?)/];
   for (const re of pats) { const m = html.match(re); if (m) { const n = parseFloat(m[1].replace(/,(?=\d{3}\b)/g, '').replace(',', '.')); if (plausible(n)) return Math.round(n * (FX[cur] || 1) * 100) / 100; } }
   return null;
 }
@@ -89,6 +96,8 @@ async function wineSearcherPrice(query: string, vintage?: string) {
   if (price === null) { try { const j = await get('https://r.jina.ai/' + page, 'text/plain'); if (j.ok) price = wsPrice(await j.text()); } catch (_) { /* ignore */ } }
   return price === null ? null : { price, page };
 }
+const seenPrice = new Map<number, Set<string>>();
+function suspicious(price: number, key: string) { const k = seenPrice.get(price) || new Set<string>(); k.add(key); seenPrice.set(price, k); if (seenPrice.size > 500) seenPrice.clear(); return k.size >= 3; }
 async function priceFor(b: { key: string; url?: string; query?: string; name?: string; vintage?: string }) {
   let vivErr = '', vivPage = '';
   try {
@@ -100,6 +109,7 @@ async function priceFor(b: { key: string; url?: string; query?: string; name?: s
       const r = await get(pageUrl);
       if (r.ok) price = priceFromHtml(await r.text()); else vivErr = 'Vivino a répondu ' + r.status;
       if (price === null) { try { const j = await get('https://r.jina.ai/' + pageUrl, 'text/plain'); if (j.ok) price = priceFromHtml(await j.text()); } catch (_) { /* ignore */ } }
+      if (price !== null && suspicious(price, b.key)) { price = null; vivErr = 'prix Vivino identique pour plusieurs vins (ignoré)'; }
       if (price !== null) return { key: b.key, ok: true, price, source: 'Vivino', page: pageUrl };
       vivErr = vivErr || 'aucun prix affiché sur Vivino';
     } else vivErr = 'introuvable sur Vivino';
@@ -124,6 +134,16 @@ async function tileData(url: string) {
 
 Deno.serve(async req => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
+  if (req.method === 'GET') { // relais audio : les anciens iPad ne lisent pas certains flux radio directement
+    const raw = new URL(req.url).searchParams.get('stream') || '';
+    try {
+      const u = new URL(raw);
+      if (u.protocol !== 'https:' || !/^(icecast\.radiofrance\.fr|streaming\.nrjaudio\.fm|rfm\.lmn\.fm|mfm\.ice\.infomaniak\.ch|[a-z0-9-]+\.ice\.infomaniak\.ch)$/.test(u.hostname)) return new Response('hôte non autorisé', { status: 400, headers: CORS });
+      const up = await fetch(u, { headers: { 'User-Agent': UA, Accept: '*/*' } });
+      if (!up.ok || !up.body) return new Response('flux indisponible', { status: 502, headers: CORS });
+      return new Response(up.body, { status: 200, headers: { ...CORS, 'Content-Type': up.headers.get('content-type') || 'audio/mpeg', 'Cache-Control': 'no-store', 'Accept-Ranges': 'none' } });
+    } catch (_) { return new Response('lien invalide', { status: 400, headers: CORS }); }
+  }
   try {
     const body = await req.json();
     if (typeof body.proxy === 'string') {
