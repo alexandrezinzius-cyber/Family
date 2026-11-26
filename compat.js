@@ -12,6 +12,14 @@
   def(Array.prototype, 'includes', function (x, from) { var a = this; for (var i = from || 0; i < a.length; i++) if (a[i] === x || (x !== x && a[i] !== a[i])) return true; return false; });
   def(Array.prototype, 'flat', function (d) { d = d === undefined ? 1 : d; var out = []; (function f(a, n) { a.forEach(function (x) { if (Array.isArray(x) && n > 0) f(x, n - 1); else out.push(x); }); })(this, d); return out; });
   def(Array.prototype, 'flatMap', function (fn, t) { return Array.prototype.concat.apply([], Array.prototype.map.call(this, fn, t)); });
+  // String.prototype.normalize absent avant iOS 10 : NFD simplifié pour les lettres accentuées latines (suffisant pour retirer les accents)
+  def(String.prototype, 'normalize', function (form) {
+    var s = String(this), f = form === undefined ? 'NFC' : String(form);
+    if (f !== 'NFD' && f !== 'NFKD') return s;
+    var base = 'aeiouyncAEIOUYNC', map = { '\u00e0': 'a\u0300', '\u00e1': 'a\u0301', '\u00e2': 'a\u0302', '\u00e3': 'a\u0303', '\u00e4': 'a\u0308', '\u00e5': 'a\u030a', '\u00e7': 'c\u0327', '\u00e8': 'e\u0300', '\u00e9': 'e\u0301', '\u00ea': 'e\u0302', '\u00eb': 'e\u0308', '\u00ec': 'i\u0300', '\u00ed': 'i\u0301', '\u00ee': 'i\u0302', '\u00ef': 'i\u0308', '\u00f1': 'n\u0303', '\u00f2': 'o\u0300', '\u00f3': 'o\u0301', '\u00f4': 'o\u0302', '\u00f5': 'o\u0303', '\u00f6': 'o\u0308', '\u00f9': 'u\u0300', '\u00fa': 'u\u0301', '\u00fb': 'u\u0302', '\u00fc': 'u\u0308', '\u00fd': 'y\u0301', '\u00ff': 'y\u0308',
+      '\u00c0': 'A\u0300', '\u00c1': 'A\u0301', '\u00c2': 'A\u0302', '\u00c3': 'A\u0303', '\u00c4': 'A\u0308', '\u00c5': 'A\u030a', '\u00c7': 'C\u0327', '\u00c8': 'E\u0300', '\u00c9': 'E\u0301', '\u00ca': 'E\u0302', '\u00cb': 'E\u0308', '\u00cc': 'I\u0300', '\u00cd': 'I\u0301', '\u00ce': 'I\u0302', '\u00cf': 'I\u0308', '\u00d1': 'N\u0303', '\u00d2': 'O\u0300', '\u00d3': 'O\u0301', '\u00d4': 'O\u0302', '\u00d5': 'O\u0303', '\u00d6': 'O\u0308', '\u00d9': 'U\u0300', '\u00da': 'U\u0301', '\u00db': 'U\u0302', '\u00dc': 'U\u0308', '\u00dd': 'Y\u0301' };
+    void base; return s.replace(/[\u00c0-\u00ff]/g, function (c) { return map[c] || c; });
+  });
   def(String.prototype, 'padStart', function (n, s) { var r = String(this); s = s === undefined ? ' ' : String(s); if (!s) return r; var p = ''; while (p.length < n - r.length) p += s; return p.slice(0, Math.max(0, n - r.length)) + r; });
   def(String.prototype, 'padEnd', function (n, s) { var r = String(this); s = s === undefined ? ' ' : String(s); if (!s) return r; var p = ''; while (p.length < n - r.length) p += s; return r + p.slice(0, Math.max(0, n - r.length)); });
   def(String.prototype, 'trimStart', function () { return this.replace(/^\s+/, ''); });
