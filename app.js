@@ -6745,7 +6745,11 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                 return "<div class=\"wxh\"><small>".concat(tm.slice(0, 10) === today ? "" : i === rest.filter(function (x) { return j.hourly.time[x].slice(0, 10) > today; })[0] ? "dem. " : "").concat(parseInt(tm.slice(11, 13), 10), " h</small>").concat(icon(kk, 30), "<b>").concat(Math.round(j.hourly.temperature_2m[i]), "\u00B0</b><small class=\"muted\">").concat(j.hourly.precipitation_probability[i] || 0, " %</small></div>");
             }).join(""), "</div>\n    <p class=\"muted small\">").concat(wxLoading ? "Mise \xE0 jour\u2026" : wxError ? esc("Mise \xE0 jour impossible (" + wxError + "), derni\xE8res donn\xE9es affich\xE9es.") : "Mis \xE0 jour il y a " + age + " min", " \u00B7 donn\u00E9es Open-Meteo</p></div>");
         }
-        var Z = 7;
+        var ZKEY = "family-radar-zoom";
+        var Z = +(jget(ZKEY) || 7);
+        if ([5, 6, 7].indexOf(Z) < 0)
+            Z = 7;
+        var ZOOMS = [[7, "R\xE9gion"], [6, "France"], [5, "Europe"]];
         var radarTry = 0, radar = null, radarErr = "", radarIdx = -1, radarTimer = null;
         function loadRadar() {
             return __awaiter(this, void 0, void 0, function () {
@@ -6783,7 +6787,7 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
             return { cx: Math.floor(x), cy: Math.floor(y), mx: (x - (Math.floor(x) - 1)) / 3 * 100, my: (y - (Math.floor(y) - 1)) / 3 * 100 };
         }
         var radarUrl = function (f, x, y) { return "".concat(radar.host).concat(f.path, "/256/").concat(Z, "/").concat(x, "/").concat(y, "/2/1_0.png"); };
-        var baseUrl = function (x, y) { return "https://a.basemaps.cartocdn.com/light_all/".concat(Z, "/").concat(x, "/").concat(y, ".png"); };
+        var baseUrl = function (x, y) { return "https://a.basemaps.cartocdn.com/rastertiles/voyager/".concat(Z, "/").concat(x, "/").concat(y, ".png"); };
         function radarHTML() {
             var c = city(), g = tileGeo(c), head = "<h3 class=\"script\">Radar de pr\u00E9cipitations</h3>";
             if (!radar)
@@ -6797,7 +6801,7 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                     over += "<img class=\"rt ro\" data-x=\"".concat(x, "\" data-y=\"").concat(y, "\" style=\"").concat(st, "\" ").concat(viaProxy ? "" : "src=\"".concat(esc(radarUrl(f, x, y)), "\""), " alt=\"\">");
                 }
             var time = new Date(f.time * 1e3).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
-            return "<div class=\"card glass\">".concat(head, "<div class=\"radarbar\"><b id=\"radarTime\">").concat(esc(time), "</b><span class=\"grow\"></span><button class=\"btn small\" id=\"radarPlay\">Animer (2 h)</button></div>\n    <div class=\"radar\"><div class=\"radarmap\">").concat(base).concat(over, "<i class=\"radarpin\" style=\"left:").concat(g.mx, "%;top:").concat(g.my, "%\"></i></div></div>\n    <p class=\"muted small\">Pluie en bleu (plus fonc\u00E9 = plus intense) \u00B7 ").concat(esc(c.name), " au centre \u00B7 images toutes les 10 minutes \u00B7 \u00A9 RainViewer, \u00A9 OpenStreetMap, \u00A9 CARTO</p></div>");
+            return "<div class=\"card glass\">".concat(head, "<div class=\"radarbar\"><b id=\"radarTime\">").concat(esc(time), "</b><span class=\"grow\"></span><button class=\"btn small\" id=\"radarPlay\">Animer (2 h)</button></div>\n    <div class=\"chips radarzoom\">").concat(ZOOMS.map(function (z) { return "<button class=\"chip ".concat(z[0] === Z ? "on" : "", "\" data-rz=\"").concat(z[0], "\">").concat(z[1], "</button>"); }).join(""), "</div>\n    <div class=\"radar\"><div class=\"radarmap\">").concat(base).concat(over, "<i class=\"radarpin\" style=\"left:").concat(g.mx, "%;top:").concat(g.my, "%\"></i><span class=\"radarcity ").concat(g.mx > 55 ? "l" : "", "\" style=\"left:").concat(g.mx, "%;top:").concat(g.my, "%\">").concat(esc(c.name), "</span></div></div>\n    <p class=\"muted small\">Pluie en bleu (plus fonc\u00E9 = plus intense) \u00B7 position : ").concat(esc(c.name), " (point rouge) \u00B7 images toutes les 10 minutes \u00B7 \u00A9 RainViewer, \u00A9 OpenStreetMap, \u00A9 CARTO</p></div>");
         }
         function setFrame(i, first) {
             return __awaiter(this, void 0, void 0, function () {
@@ -7005,6 +7009,13 @@ var __spreadProps = function (a, b) { return __defProps(a, __getOwnPropDescs(b))
                 clearInterval(radarTimer);
                 if (radar && viaProxy && $(".ro", root) && !$(".ro", root).getAttribute("src"))
                     setFrame(radarIdx < 0 ? radar.frames.length - 1 : radarIdx, true);
+                $$("[data-rz]", root).forEach(function (b) { return b.onclick = function () {
+                    Z = +b.dataset.rz;
+                    jset(ZKEY, Z);
+                    clearInterval(radarTimer);
+                    radarTimer = null;
+                    redraw();
+                }; });
                 var rr = $("#radarRetry", root);
                 if (rr)
                     rr.onclick = function () {

@@ -372,6 +372,10 @@ main.sheet { position: relative; background: var(--sheet); border-radius: 38px 3
 .remrow{display:-webkit-flex;display:flex;-webkit-align-items:center;align-items:center;padding:6px 0;border-bottom:1px solid rgba(0,0,0,.06)}.remrow .tick{margin-right:10px;-webkit-flex:0 0 auto;flex:0 0 auto}.remrow.done b{text-decoration:line-through;opacity:.55}.remrow.late small{color:#b3402f}
 .dash .dashwx>.card,.dash .dashradar>.card{margin-bottom:10px}
 .remrow .tick{width:28px;height:28px;border-radius:50%;border:2px solid #8fc3a6;background:#fff;color:#2f7d5b;padding:0;line-height:1}
+.radarpin{width:14px;height:14px;margin:-7px 0 0 -7px;box-shadow:0 0 0 3px rgba(211,58,58,.28),0 1px 4px rgba(0,0,0,.4);z-index:3}
+.radarcity{position:absolute;z-index:3;margin:8px 0 0 10px;padding:1px 6px;border-radius:8px;background:rgba(255,255,255,.88);font-size:.74rem;font-weight:600;color:#7a2222;white-space:nowrap}
+.radarzoom{margin:4px 0 8px}
+.radarcity.l{margin:8px 0 0 -10px;-webkit-transform:translateX(-100%);transform:translateX(-100%)}
 /* LEGACY-FALLBACK : généré (iOS 9 : pas de grille CSS ni de « gap » sur flex). Classes posées par compat.js */
 .nogap .btn > * + *{margin-left:6px}
 .nogap .bar > *{margin-right:10px;margin-bottom:10px}
