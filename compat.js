@@ -12,6 +12,7 @@
   def(Array.prototype, 'includes', function (x, from) { var a = this; for (var i = from || 0; i < a.length; i++) if (a[i] === x || (x !== x && a[i] !== a[i])) return true; return false; });
   def(Array.prototype, 'flat', function (d) { d = d === undefined ? 1 : d; var out = []; (function f(a, n) { a.forEach(function (x) { if (Array.isArray(x) && n > 0) f(x, n - 1); else out.push(x); }); })(this, d); return out; });
   def(Array.prototype, 'flatMap', function (fn, t) { return Array.prototype.concat.apply([], Array.prototype.map.call(this, fn, t)); });
+  def(Object, 'getOwnPropertyDescriptors', function (o) { var r = {}; Object.getOwnPropertyNames(o).forEach(function (k) { r[k] = Object.getOwnPropertyDescriptor(o, k); }); if (Object.getOwnPropertySymbols) Object.getOwnPropertySymbols(o).forEach(function (k) { r[k] = Object.getOwnPropertyDescriptor(o, k); }); return r; });
   // String.prototype.normalize absent avant iOS 10 : NFD simplifié pour les lettres accentuées latines (suffisant pour retirer les accents)
   def(String.prototype, 'normalize', function (form) {
     var s = String(this), f = form === undefined ? 'NFC' : String(form);
